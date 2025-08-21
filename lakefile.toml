@@ -1,0 +1,20 @@
+name = "stack-lean"
+version = "0.1.0"
+defaultTargets = ["stack-lean"]
+
+[[require]]
+name = "mathlib"
+scope = "leanprover-community"
+rev = "v4.22.0"
+
+[[require]]
+name = "batteries"
+scope = "leanprover-community"
+rev = "v4.22.0"
+
+[[lean_lib]]
+name = "StackLean"
+
+[[lean_exe]]
+name = "stack-lean"
+root = "Main"
