@@ -214,7 +214,7 @@ def shuffle (stack : Stack) (target : Target) : Except Err Stack := do
       have : 0 < stack.length := by exact List.length_pos_iff.mpr h_stack_empty
 
       -- if the top can be popped (args and tail have enough of it without it, it’s not junk)
-      if h_top_is_surplus : target.surplus (stack.take 1) stack[0] then
+      if h_top_is_surplus : target.surplus stack stack[0] then
         -- pop it
         let s' ← stack.apply .Pop
         -- TODO: recurse
@@ -222,15 +222,36 @@ def shuffle (stack : Stack) (target : Target) : Except Err Stack := do
       else
 
         -- invariant: the top is either required in args or in tail or is junk
-        let top := stack[0]
+        -- TODO: this is a pretty unsatisfying definition...
+        have h_top_required_or_junk : ¬(target.surplus stack stack[0]) := by simp_all
+
         -- if the top is junk and popping it fixes one or more positions in args
-        if h_popping_junk_fixes_args : top = .Junk ∧ True then
+        if h_popping_junk_fixes_args : stack[0] = .Junk ∧ True then
           -- pop it
           let s' ← stack.apply .Pop
           -- TODO: recurse
           return s'
+        else
 
-        return stack
+          -- TODO: if the top is out of position and required in args, swap it to the right place
+          -- TODO: invariant: the top is in position or belongs in the tail
+
+          -- TODO: stack compression / deep slot fishing
+          -- TODO: invariant: either stack too deep or all required slots are reachable
+
+          -- TODO: top incorrect and not required in args: swap up a compatible slot
+          -- TODO: invariant: the top is in place and all slots are reachable
+
+          -- TODO: if there is any slot we need more of to populate args, dup it
+          -- TODO: all required slots are present in required quantity
+
+          -- TODO: swap up any reachable slot that is still out of position and not the same as head
+
+          -- TODO: we only get here if there is a slot that is out of position and not reachable. last ditch compress the stack again
+          -- TODO: need to avoid an infinite loop here
+
+          -- otherwise: stack too deep :-(
+          throw .StackTooDeep
 
 --theorem shuffle_correct : ∀ (stack : Stack) (target : Target),
   --∃ (res : Stack), .ok res = shuffle stack target ∧ res
