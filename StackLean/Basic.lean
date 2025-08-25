@@ -1,32 +1,100 @@
-import Lean.Data.PersistentHashMap
-import Mathlib.Data.Multiset.Basic
-import Mathlib.Data.Multiset.AddSub
-import Mathlib.Data.Multiset.Dedup
 import Mathlib.Data.Finset.Basic
+import Mathlib.Data.List.Nodup
 import Aesop
+
+--- Basic Types ---
 
 abbrev Word := Fin (2 ^ 256)
 
+--- Sets ---
+
+-- We use a subtype here since it's more friendly to computable iteration than the mathlib sets
+def LSet (α : Type) := { l : List α // List.Nodup l }
+
+instance : Membership α (LSet α) where
+  mem (t : LSet α) (v : α) := v ∈ t.val
+
+instance (t : LSet α) (v : α) [DecidableEq α] : Decidable (v ∈ t) :=
+  inferInstanceAs (Decidable (v ∈ t.val))
+
+instance [DecidableEq α] : Sub (LSet α) where
+  sub (lhs : LSet α) (rhs : LSet α) : LSet α :=
+    ⟨lhs.val.filter (· ∉ rhs.val)
+    , by
+      apply List.Nodup.filter
+      exact lhs.property
+    ⟩
+
+def LSet.ofList [DecidableEq α] : (vs : List α) → LSet α
+  | .nil => ⟨[], by simp⟩
+  | .cons hd tl =>
+      let rest := LSet.ofList tl
+      if helem : hd ∈ rest
+      then rest
+      else ⟨hd :: rest.val, by
+        simp ; apply And.intro
+        · trivial
+        · apply rest.property
+      ⟩
+
+--- Stack Slots ---
+
+-- A var is a newtype around a Nat
+def Var := Nat
+  deriving DecidableEq
+
+-- In addition to variables, slots can contain literals and junk elems
 inductive Slot where
-  | Var : Nat → Slot
+  | Var : Var → Slot
   | Lit : Word → Slot
   | Junk : Slot
-  deriving BEq, Hashable, Hashable, DecidableEq
+  deriving DecidableEq
+
+instance : LawfulBEq Var := inferInstance
+instance : LawfulBEq Slot := inferInstance
+
+-- Stacks ---
 
 abbrev Stack := List Slot
 
-structure Target where
-  args : Stack
-  -- TODO: make this a Set
-  tail : Multiset Slot
+def Stack.vars (s : Stack) : LSet Var :=
+  let unwrap := λ s =>
+    match s with
+      | .Var v => some v
+      | _ => none
 
-inductive Ty where
-  | Int : Ty
-  | Bool : Ty
+  s |> List.filterMap unwrap |> LSet.ofList
+
+--- Targets ---
+
+-- A target is a specification of a desired shuffle outcome
+structure Target where
+  -- a concrete args section that must have a specific order and multiplicity
+  args : Stack
+  -- an abstract tail section that is a set of variables that must remain live for downstream ops
+  liveOut : LSet Var
+
+def Target.surplus (target : Target) (stack : Stack) (slot : Slot) : Prop :=
+  let target_args_count := target.args.count slot
+  let stack_head_count := stack |> List.take target.args.length |> List.count slot
+  match slot with
+  | .Var v => target_args_count < stack_head_count ∧ v ∈ target.liveOut
+  | .Lit _ => target_args_count < stack_head_count
+  | .Junk => True
+
+instance (target : Target) (stack : Stack) (slot : Slot) : Decidable (target.surplus stack slot) := by
+  unfold Target.surplus
+  match slot with
+  | .Var v => exact inferInstance
+  | .Lit _ => exact inferInstance
+  | .Junk => exact isTrue trivial
+
+--- Stack Manipulation ---
 
 inductive Op where
   -- swap0 is a noop, the others match the evm
   | Swap     : Fin 17 → Op
+  -- dupn => evm dup(n + 1)
   | Dup      : Fin 16 → Op
   | Pop      : Op
   | Push     : Word → Op
@@ -103,11 +171,10 @@ theorem apply_pop_eq_prev_stack_tail (stack : Stack) (h : stack.length > 0) :
 
 -- TODO: push / markjunk theorems
 
--- shuffle --
+--- Stack Shuffling ---
 
--- TODO: using Multiset is nice but idk how to make it computable
 -- TODO: target can only be reached from stack if the variable set of target ⊆ the variable set of stack
-noncomputable def shuffle (stack : Stack) (target : Target) : Except Err Stack := do
+def shuffle (stack : Stack) (target : Target) : Except Err Stack := do
   if h_stack_empty : stack = [] then
     throw .StackTooShallow
   else
@@ -118,13 +185,11 @@ noncomputable def shuffle (stack : Stack) (target : Target) : Except Err Stack :
     -- check if the current head matches the target head
     if hargs : head = target.args then
       -- check if any of the args are also required in the tail and not there yet
-      -- TODO: I'm probably handling junk wrong here
-      let missing := (target.tail - (Multiset.ofList tail)).toFinset.toList
-      for slot in missing do
-        match head.findIdx? (· == slot) with
+      let missing := target.liveOut - Stack.vars tail
+      for var in missing.val do
+        match head.findIdx? (· == .Var var) with
         | .none => continue
-        -- dup if that is the case (or dup deep slot if required)
-        -- TODO: what does dup deep slot if required mean??
+        -- dup if that is the case
         | .some idx =>
           if h : idx < 16 then
             let s' ← stack.apply (.Dup ⟨idx, h⟩)
@@ -148,12 +213,8 @@ noncomputable def shuffle (stack : Stack) (target : Target) : Except Err Stack :
       -- helper lemma for safe indexing proofs
       have : 0 < stack.length := by exact List.length_pos_iff.mpr h_stack_empty
 
-      let top := stack[0]
-      let top_is_surplus_in_args := top ∈ (Multiset.ofList head - target.args)
-      let top_is_surplus_in_tail := top ∈ (Multiset.ofList tail - target.tail)
-
       -- if the top can be popped (args and tail have enough of it without it, it’s not junk)
-      if h_top_is_surplus : top_is_surplus_in_args ∧ top_is_surplus_in_tail ∧ top ≠ .Junk then
+      if h_top_is_surplus : target.surplus (stack.take 1) stack[0] then
         -- pop it
         let s' ← stack.apply .Pop
         -- TODO: recurse
@@ -161,8 +222,7 @@ noncomputable def shuffle (stack : Stack) (target : Target) : Except Err Stack :
       else
 
         -- invariant: the top is either required in args or in tail or is junk
-        -- TODO
-
+        let top := stack[0]
         -- if the top is junk and popping it fixes one or more positions in args
         if h_popping_junk_fixes_args : top = .Junk ∧ True then
           -- pop it
@@ -172,5 +232,5 @@ noncomputable def shuffle (stack : Stack) (target : Target) : Except Err Stack :
 
         return stack
 
-theorem shuffle_correct : ∀ (stack : Stack) (target : Target),
-  ∃ (res : Stack), .ok res = shuffle stack target ∧ res
+--theorem shuffle_correct : ∀ (stack : Stack) (target : Target),
+  --∃ (res : Stack), .ok res = shuffle stack target ∧ res
