@@ -175,85 +175,28 @@ theorem apply_pop_eq_prev_stack_tail (sz : Nat) (hsz : sz > 0) (stack : Stack sz
 
 --- Stack Shuffling ---
 
+inductive ShuffleResult where
+  | StackTooDeep
+  | ForbiddenState
+  | ResultStack(sz : Nat)(stack: Stack sz)
+
 -- TODO: target can only be reached from stack if the variable set of target ⊆ the variable set of stack
-def shuffle (stack : Stack) (target : Target) : Except Err Stack := do
-  if h_stack_empty : stack = [] then
-    throw .StackTooShallow
-  else
+def shuffle (sz : Nat) (stack : Stack sz) (nargs : Nat) (target : Target nargs) : ShuffleResult := .StackTooDeep
 
-    let head := stack.take target.args.length
-    let tail := stack.drop target.args.length
+def is_compatible (sz : Nat) (stack: Stack sz) (nargs : Nat) (target : Target nargs) : Prop :=
+  let stack_is_large_enough := sz ≥ nargs + target.liveOut.val.length
 
-    -- check if the current head matches the target head
-    if hargs : head = target.args then
-      -- check if any of the args are also required in the tail and not there yet
-      let missing := target.liveOut - Stack.vars tail
-      for var in missing.val do
-        match head.findIdx? (· == .Var var) with
-        | .none => continue
-        -- dup if that is the case
-        | .some idx =>
-          if h : idx < 16 then
-            let s' ← stack.apply (.Dup ⟨idx, h⟩)
-            -- TODO: recurse
-            return s'
-          else
-            throw .StackTooDeep
-      -- otherwise return, we are done
-      return stack
+  have : target.args.val.length = nargs := target.args.property
+  have : stack.val.length = sz := stack.property
 
-    else
+  have hidx : (hle : stack_is_large_enough) -> ∀ i, i < nargs → i < stack.val.length := by omega
+  have thidx : ∀ i, i < nargs → i < target.args.val.length := by omega
 
-      -- invariant: the args region is wrong
-      have h_wrong : head ≠ target.args := by simp_all
-      -- invariant: the args region is non empty
-      have h_non_empty : head ≠ [] := by
-        by_contra h_empty
-        have h_args_empty : target.args = []:= by simp_all [head]
-        simp_all
+  let args_match := (hle : stack_is_large_enough) → ∀ (i : Nat), (hn : i < nargs) → stack.val[i]'(hidx hle i hn) = target.args.val[i]'(thidx i hn)
+  let tails_compatible := ∀ (v : Var), v ∈ target.liveOut → (.Var v) ∈ stack.val.drop nargs
 
-      -- helper lemma for safe indexing proofs
-      have : 0 < stack.length := by exact List.length_pos_iff.mpr h_stack_empty
+  stack_is_large_enough ∧ args_match ∧ tails_compatible
 
-      -- if the top can be popped (args and tail have enough of it without it, it’s not junk)
-      if h_top_is_surplus : target.surplus stack stack[0] then
-        -- pop it
-        let s' ← stack.apply .Pop
-        -- TODO: recurse
-        return s'
-      else
-
-        -- invariant: the top is either required in args or in tail or is junk
-        -- TODO: this is a pretty unsatisfying definition...
-        have h_top_required_or_junk : ¬(target.surplus stack stack[0]) := by simp_all
-
-        -- if the top is junk and popping it fixes one or more positions in args
-        if h_popping_junk_fixes_args : stack[0] = .Junk ∧ True then
-          -- pop it
-          let s' ← stack.apply .Pop
-          -- TODO: recurse
-          return s'
-        else
-
-          -- TODO: if the top is out of position and required in args, swap it to the right place
-          -- TODO: invariant: the top is in position or belongs in the tail
-
-          -- TODO: stack compression / deep slot fishing
-          -- TODO: invariant: either stack too deep or all required slots are reachable
-
-          -- TODO: top incorrect and not required in args: swap up a compatible slot
-          -- TODO: invariant: the top is in place and all slots are reachable
-
-          -- TODO: if there is any slot we need more of to populate args, dup it
-          -- TODO: all required slots are present in required quantity
-
-          -- TODO: swap up any reachable slot that is still out of position and not the same as head
-
-          -- TODO: we only get here if there is a slot that is out of position and not reachable. last ditch compress the stack again
-          -- TODO: need to avoid an infinite loop here
-
-          -- otherwise: stack too deep :-(
-          throw .StackTooDeep
-
---theorem shuffle_correct : ∀ (stack : Stack) (target : Target),
-  --∃ (res : Stack), .ok res = shuffle stack target ∧ res
+theorem shuffle_correct : ∀ (stack : Stack sz) (target : Target nargs), ∃ (res : ShuffleResult),
+  res = shuffle sz stack nargs target ∧ ((.ResultStack rsz rstack = res ∧ is_compatible rsz rstack nargs target) ∨ .StackTooDeep = res)
+    := by simp [shuffle]
