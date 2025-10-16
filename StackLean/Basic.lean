@@ -182,23 +182,42 @@ inductive ShuffleResult where
   | ForbiddenState
   | ResultStack(sz : Nat)(stack: Stack sz)
 
--- TODO: target can only be reached from stack if the variable set of target ⊆ the variable set of stack
-def shuffle (sz : Nat) (stack : Stack sz) (nargs : Nat) (target : Target nargs) : ShuffleResult := .StackTooDeep
+@[simp]
+abbrev stack_is_large_enough (sz : Nat) (nargs : Nat) (target : Target nargs) : Prop := sz ≥ nargs + target.liveOut.val.length
 
-def is_compatible (sz : Nat) (stack: Stack sz) (nargs : Nat) (target : Target nargs) : Prop :=
-  let stack_is_large_enough := sz ≥ nargs + target.liveOut.val.length
-
+@[simp]
+abbrev args_is_correct (sz : Nat) (stack: Stack sz) (nargs : Nat) (target : Target nargs) : Prop :=
   have : target.args.val.length = nargs := target.args.property
   have : stack.val.length = sz := stack.property
-
-  have hidx : (hle : stack_is_large_enough) -> ∀ i, i < nargs → i < stack.val.length := by omega
+  have hidx : (hle : stack_is_large_enough sz nargs target) -> ∀ i, i < nargs → i < stack.val.length := by omega
   have thidx : ∀ i, i < nargs → i < target.args.val.length := by omega
 
-  let args_match := (hle : stack_is_large_enough) → ∀ (i : Nat), (hn : i < nargs) → stack.val[i]'(hidx hle i hn) = target.args.val[i]'(thidx i hn)
-  let tails_compatible := ∀ (v : Var), v ∈ target.liveOut → (.Var v) ∈ stack.val.drop nargs
+  (stack_is_large_enough sz nargs target) ∧ ((hle : stack_is_large_enough sz nargs target) → ∀ (i : Nat), (hn : i < nargs) → stack.val[i]'(hidx hle i hn) = target.args.val[i]'(thidx i hn))
 
-  stack_is_large_enough ∧ args_match ∧ tails_compatible
+@[simp]
+abbrev tail_is_compatible (sz : Nat) (stack: Stack sz) (nargs : Nat) (target : Target nargs) : Prop :=
+  ∀ (v : Var), v ∈ target.liveOut → (.Var v) ∈ stack.val.drop nargs
 
-theorem shuffle_correct : ∀ (stack : Stack sz) (target : Target nargs), ∃ (res : ShuffleResult),
-  res = shuffle sz stack nargs target ∧ ((.ResultStack rsz rstack = res ∧ is_compatible rsz rstack nargs target) ∨ .StackTooDeep = res)
-    := by simp [shuffle]
+@[simp]
+abbrev is_compatible (sz : Nat) (stack: Stack sz) (nargs : Nat) (target : Target nargs) : Prop :=
+  (stack_is_large_enough sz nargs target) ∧ (args_is_correct sz stack nargs target) ∧ (tail_is_compatible sz stack nargs target)
+
+-- TODO: target can only be reached from stack if the variable set of target ⊆ the variable set of stack
+def shuffle (sz : Nat) (stack : Stack sz) (nargs : Nat) (target : Target nargs) : ShuffleResult :=
+  if (args_is_correct sz stack nargs target)
+  then
+    if (tail_is_compatible sz stack nargs target)
+    then .ResultStack sz stack
+    else .StackTooDeep
+  else .StackTooDeep
+
+theorem shuffle_correct : ∀ (stack : Stack sz) (target : Target nargs), ∃ (res : ShuffleResult) (rsz : Nat) (rstack : Stack rsz),
+  res = shuffle sz stack nargs target → ((.ResultStack rsz rstack = shuffle sz stack nargs target ∧ is_compatible rsz rstack nargs target) ∨ .StackTooDeep = res)
+    := by
+        intros stack target
+        exact ⟨.ResultStack sz stack, sz, stack , by
+          intro hres
+          simp [shuffle]
+          simp [shuffle] at hres
+          split_ifs with hargs htail <;> simp_all
+        ⟩
