@@ -110,14 +110,14 @@ inductive Op : Nat → Type where
 
 -- The effect an operation has on the size of a stack
 @[reducible, simp]
-def sizeAfter (_ : Stack szin) (op : Op szin) : Nat := match op with
+def sizeAfter (szin : Nat) (op : Op szin) : Nat := match op with
   | .Swap _ _ => szin
   | .Dup _ _ => szin + 1
   | .Pop _ => szin - 1
   | .Push _ => szin + 1
   | .MarkJunk _ => szin
 
-def Stack.apply (stack : Stack szin) (op : Op szin) : Stack (sizeAfter stack op) :=
+def Stack.apply (stack : Stack szin) (op : Op szin) : Stack (sizeAfter szin op) :=
   have : stack.val.length = szin := stack.property
   match op with
     | .Swap _ idx =>
@@ -133,6 +133,41 @@ def Stack.apply (stack : Stack szin) (op : Op szin) : Stack (sizeAfter stack op)
     | .MarkJunk idx =>
       have : idx < stack.val.length := by omega
       ⟨stack.val.set idx .Junk, by simp_all⟩
+
+inductive Stack' where
+  | Lit : (stk : List Slot) → Stack'
+  | Swap : Stack' → Nat → Stack'
+  | Dup : Stack' → Nat → Stack'
+  | Pop : Stack' → Stack'
+  | Push : Stack' → Word → Stack'
+  | MarkJunk : Stack' → Nat → Stack'
+
+inductive Stack'.eval : Stack' → (List Slot) → Prop where
+  | Lit : Stack'.eval (.Lit s) s
+  | Swap
+    : Stack'.eval s res
+    → (hlen : res.length > idx)
+    → (hlo : 0 < idx)
+    → (hhi : idx < 17)
+    → Stack'.eval (.Swap s idx) ((res.set 0 res[idx]).set idx res[0])
+  | Dup
+    : Stack'.eval s res
+    → (hlen : idx < res.length)
+    → (hlo : 1 ≤ idx)
+    → (hhi : idx < 17)
+    → Stack'.eval (.Dup s idx) (res[idx] :: res)
+  | Pop
+    : Stack'.eval s res
+    → (hlen : 0 < res.length)
+    → Stack'.eval (.Pop s) res.tail
+  | Push
+    : Stack'.eval s res
+    → Stack'.eval (.Push s word) (.Lit word :: res)
+  | MarkJunk
+    : Stack'.eval s res
+    → (hlen : idx < res.length)
+    → Stack'.eval (.MarkJunk s idx) (res.set idx .Junk)
+
 
 -- apply theorems --
 
@@ -180,7 +215,7 @@ theorem apply_pop_eq_prev_stack_tail (sz : Nat) (hsz : sz > 0) (stack : Stack sz
 inductive ShuffleResult where
   | StackTooDeep
   | ForbiddenState
-  | ResultStack(sz : Nat)(stack: Stack sz)
+  | ResultStack (sz : Nat) (ops : List (Σ s, Op s)) (stack: Stack sz)
 
 @[simp]
 abbrev stack_is_large_enough (sz : Nat) (nargs : Nat) (target : Target nargs) : Prop := sz ≥ nargs + target.liveOut.val.length
@@ -207,15 +242,15 @@ def shuffle (sz : Nat) (stack : Stack sz) (nargs : Nat) (target : Target nargs) 
   if (args_is_correct sz stack nargs target)
   then
     if (tail_is_compatible sz stack nargs target)
-    then .ResultStack sz stack
+    then .ResultStack sz [] stack
     else .StackTooDeep
   else .StackTooDeep
 
-theorem shuffle_correct : ∀ (stack : Stack sz) (target : Target nargs), ∃ (res : ShuffleResult) (rsz : Nat) (rstack : Stack rsz),
-  res = shuffle sz stack nargs target → ((.ResultStack rsz rstack = shuffle sz stack nargs target ∧ is_compatible rsz rstack nargs target) ∨ .StackTooDeep = res)
+theorem shuffle_correct : ∀ (stack : Stack sz) (target : Target nargs), ∃ (res : ShuffleResult) (rsz : Nat) (ops : List (Π s, Op s)) (rstack : Stack rsz),
+  res = shuffle sz stack nargs target → ((.ResultStack rsz rops rstack = shuffle sz stack nargs target ∧ Stack.apply ∧ is_compatible rsz rstack nargs target) ∨ .StackTooDeep = res)
     := by
         intros stack target
-        exact ⟨.ResultStack sz stack, sz, stack , by
+        exact ⟨.ResultStack sz [] stack, sz, [], stack , by
           intro hres
           simp [shuffle]
           simp [shuffle] at hres
