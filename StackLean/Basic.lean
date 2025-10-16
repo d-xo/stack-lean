@@ -78,6 +78,8 @@ inductive Stack where
   | Push : Word → Stack → Stack
   | MarkJunk : Nat → Stack → Stack
 
+def List.swap {α : Type u} (xs : List α) (i j : Nat) (hi : i < xs.length := by get_elem_tactic) (hj : j < xs.length := by get_elem_tactic) := (xs.set i xs[j]).set j xs[i]
+
 inductive Stack.eval : Stack → (List Slot) → Prop where
   | Lit : Stack.eval (.Lit s) s
   | Swap
@@ -85,7 +87,7 @@ inductive Stack.eval : Stack → (List Slot) → Prop where
     → (hlen : res.length > idx)
     → (hlo : 0 < idx)
     → (hhi : idx < 17)
-    → Stack.eval (.Swap idx s) ((res.set 0 res[idx]).set idx res[0])
+    → Stack.eval (.Swap idx s) (res.swap 0 idx)
   | Dup
     : Stack.eval s res
     → (hlen : idx < res.length)
@@ -115,7 +117,7 @@ theorem apply_dup_grows_stack (stack : List Slot) (idx : Nat) (heval : Stack.eva
 -- applying swap at the same idx twice is a noop
 theorem apply_swap_inv (stack : List Slot) (idx : Nat) (heval : Stack.eval (.Lit stack |> .Swap idx |> .Swap idx) res) : res = stack := match heval with
   | .Swap (.Swap .Lit hlen' hlo' hhi') hlen hlo hhi => by
-    simp_all [List.getElem_set]
+    simp_all [List.swap, List.getElem_set]
     split_ifs
     · simp_all
     · ext i
