@@ -1,6 +1,5 @@
 import Mathlib.Order.Interval.Set.Defs
 import Mathlib.Data.List.Nodup
-import Init.Data.Vector.Basic
 import Aesop
 
 --- Basic Types ---
@@ -70,26 +69,21 @@ inductive Stack : Nat → Type where
   | Push : Stack szin → Word → Stack (szin + 1)
   | MarkJunk : Stack szin → Fin szin → Stack szin
 
-abbrev FinIn (range: Set ℕ) := { val : Nat // val ∈ range }
+abbrev FinIcc {lb ub : Nat} (range: Set.Icc lb ub) := { val : Nat // val ∈ range }
 
-inductive Stack' : List Slot → Type where
-  | Lit : (stk : List Slot) → Stack' stk
-  | Swap1 : Stack' (a :: b :: rest) → Stack' (b :: a :: rest)
-  | Swap2 : Stack' (a :: b :: c :: rest) → Stack' (c :: b :: a :: rest)
-  | Swap3 : Stack' (a :: b :: c :: d :: rest) → Stack' (d :: b :: c :: a :: rest)
-  | Swap4 : Stack' (a :: b :: c :: d :: e :: rest) → Stack' (e :: b :: c :: d :: a :: rest)
-  | Swap5 : Stack' (a :: b :: c :: d :: e :: f :: rest) → Stack' (f :: b :: c :: d :: e :: a :: rest)
-  | Swap6 : Stack' (a :: b :: c :: d :: e :: f :: g :: rest) → Stack' (g :: b :: c :: d :: e :: f :: a :: rest)
+inductive Stack' : Array Slot → Type where
+  | Lit : (stk : Array Slot) → Stack' stk
+  | Swap : Stack' elems → (idx : FinIcc (FinSet.Icc 1 16)) → Stack' (elems.swap 0 idx)
+  -- dupn => evm dup(n + 1)
+  | Dup : Stack' szin → Fin (min 16 szin) → Stack (szin + 1)
+  | Pop : Stack (.succ szout) → Stack szout
+  | Push : Stack szin → Word → Stack (szin + 1)
+  | MarkJunk : Stack szin → Fin szin → Stack szin
 
-def s := Stack'.Lit [.Lit 0, .Lit 1] |> Stack'.Swap1
-
-inductive Stack'' : Vector Slot sz → Type where
-  | Lit : (stk : Vector Slot sz) → Stack'' stk
 
 
 -- Stacks ---
 
-/-
 abbrev Stack (sz : Nat):= { l : List Slot // l.length = sz}
 
 
@@ -231,4 +225,3 @@ def is_compatible (sz : Nat) (stack: Stack sz) (nargs : Nat) (target : Target na
 theorem shuffle_correct : ∀ (stack : Stack sz) (target : Target nargs), ∃ (res : ShuffleResult),
   res = shuffle sz stack nargs target ∧ ((.ResultStack rsz rstack = res ∧ is_compatible rsz rstack nargs target) ∨ .StackTooDeep = res)
     := by simp [shuffle]
-  -/
