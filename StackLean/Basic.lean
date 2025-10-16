@@ -1,5 +1,6 @@
 import Mathlib.Order.Interval.Basic
 import Mathlib.Data.List.Nodup
+import Mathlib.Tactic
 import Init.Data.Vector.Basic
 import Aesop
 
@@ -162,7 +163,33 @@ inductive Stack : List Slot → Type where
     : Stack (s00 :: s01 :: s02 :: s03 :: s04 :: s05 :: s06 :: s07 :: s08 :: s09 :: s10 :: s11 :: s12 :: s13 :: s14 :: s15 :: rest)
     → Stack (s15 :: s00 :: s01 :: s02 :: s03 :: s04 :: s05 :: s06 :: s07 :: s08 :: s09 :: s10 :: s11 :: s12 :: s13 :: s14 :: s15 :: rest)
 
-def s := Stack.Lit [.Lit 0, .Lit 1] |> Stack.Swap1
+
+syntax "#Swap" num : term
+
+macro_rules
+  | `(#Swap $n:num) => return Lean.mkIdent (String.toName ((Lean.Name.toString `Stack.Swap).append (Nat.repr (Lean.TSyntax.getNat n))))
+
+
+abbrev FinIco (lo hi : Nat) := { val : Nat // lo ≤ val ∧ val < hi }
+
+syntax "#f" num : term
+
+macro_rules
+  | `(#f $n:num) => `(⟨$n, by omega⟩)
+
+inductive Stack' : Vector Slot sz → Type where
+  | Lit : (stk : Vector Slot sz) → Stack' stk
+  | Swap
+    : (idx : FinIco 1 (min 17 (.succ size)))
+    → Stack' (elems : Vector Slot (.succ size))
+    → (hlo : 0 < idx.val := by linarith)
+    → (htop : idx < elems.size := by linarith)
+    → Stack' (elems.swap 0 idx)
+
+def s' := Stack'.Lit #v[.Lit 0, .Lit 1]
+       |> (Stack'.Swap (#f 1))
+       --|> (Stack'.swap (#f 1))
+
 
 -- Stacks ---
 
