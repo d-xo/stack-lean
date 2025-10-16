@@ -1,4 +1,4 @@
-import Mathlib.Order.Interval.Set.Defs
+import Mathlib.Order.Interval.Basic
 import Mathlib.Data.List.Nodup
 import Init.Data.Vector.Basic
 import Aesop
@@ -60,32 +60,109 @@ instance : LawfulBEq Slot := inferInstance
 
 -- Stacks ---
 
-inductive Stack : Nat → Type where
-  | Lit : (stk : List Slot) → Stack stk.length
-  -- swap0 is a noop, the others match the evm
-  | Swap : Stack szin → Fin (min 17 szin) → Stack szin
-  -- dupn => evm dup(n + 1)
-  | Dup : Stack szin → Fin (min 16 szin) → Stack (szin + 1)
-  | Pop : Stack (.succ szout) → Stack szout
-  | Push : Stack szin → Word → Stack (szin + 1)
-  | MarkJunk : Stack szin → Fin szin → Stack szin
+inductive Stack : List Slot → Type where
+  | Lit : (stk : List Slot) → Stack stk
+  | Push : Stack s → (lit: Word) → Stack ((.Lit lit) :: s)
+  | Pop : Stack (top :: rest) → Stack rest
+  | MarkJunk : Stack s → (ix : Fin s.length) → Stack (s.set ix .Junk)
+  | Swap1
+    : Stack (s00 :: s01 :: rest)
+    → Stack (s01 :: s00 :: rest)
+  | Swap2
+    : Stack (s00 :: s01 :: s02 :: rest)
+    → Stack (s02 :: s01 :: s00 :: rest)
+  | Swap3
+    : Stack (s00 :: s01 :: s02 :: s03 :: rest)
+    → Stack (s03 :: s01 :: s02 :: s00 :: rest)
+  | Swap4
+    : Stack (s00 :: s01 :: s02 :: s03 :: s04 :: rest)
+    → Stack (s04 :: s01 :: s02 :: s03 :: s00 :: rest)
+  | Swap5
+    : Stack (s00 :: s01 :: s02 :: s03 :: s04 :: s05 :: rest)
+    → Stack (s05 :: s01 :: s02 :: s03 :: s04 :: s00 :: rest)
+  | Swap6
+    : Stack (s00 :: s01 :: s02 :: s03 :: s04 :: s05 :: s06 :: rest)
+    → Stack (s06 :: s01 :: s02 :: s03 :: s04 :: s05 :: s00 :: rest)
+  | Swap7
+    : Stack (s00 :: s01 :: s02 :: s03 :: s04 :: s05 :: s06 :: s07 :: rest)
+    → Stack (s07 :: s01 :: s02 :: s03 :: s04 :: s05 :: s06 :: s00 :: rest)
+  | Swap8
+    : Stack (s00 :: s01 :: s02 :: s03 :: s04 :: s05 :: s06 :: s07 :: s08 :: rest)
+    → Stack (s08 :: s01 :: s02 :: s03 :: s04 :: s05 :: s06 :: s07 :: s00 :: rest)
+  | Swap9
+    : Stack (s00 :: s01 :: s02 :: s03 :: s04 :: s05 :: s06 :: s07 :: s08 :: s09 :: rest)
+    → Stack (s09 :: s01 :: s02 :: s03 :: s04 :: s05 :: s06 :: s07 :: s08 :: s00 :: rest)
+  | Swap10
+    : Stack (s00 :: s01 :: s02 :: s03 :: s04 :: s05 :: s06 :: s07 :: s08 :: s09 :: s10 :: rest)
+    → Stack (s10 :: s01 :: s02 :: s03 :: s04 :: s05 :: s06 :: s07 :: s08 :: s09 :: s00 :: rest)
+  | Swap11
+    : Stack (s00 :: s01 :: s02 :: s03 :: s04 :: s05 :: s06 :: s07 :: s08 :: s09 :: s10 :: s11 :: rest)
+    → Stack (s11 :: s01 :: s02 :: s03 :: s04 :: s05 :: s06 :: s07 :: s08 :: s09 :: s10 :: s00 :: rest)
+  | Swap12
+    : Stack (s00 :: s01 :: s02 :: s03 :: s04 :: s05 :: s06 :: s07 :: s08 :: s09 :: s10 :: s11 :: s12 :: rest)
+    → Stack (s12 :: s01 :: s02 :: s03 :: s04 :: s05 :: s06 :: s07 :: s08 :: s09 :: s10 :: s11 :: s00 :: rest)
+  | Swap13
+    : Stack (s00 :: s01 :: s02 :: s03 :: s04 :: s05 :: s06 :: s07 :: s08 :: s09 :: s10 :: s11 :: s12 :: s13 :: rest)
+    → Stack (s13 :: s01 :: s02 :: s03 :: s04 :: s05 :: s06 :: s07 :: s08 :: s09 :: s10 :: s11 :: s12 :: s00 :: rest)
+  | Swap14
+    : Stack (s00 :: s01 :: s02 :: s03 :: s04 :: s05 :: s06 :: s07 :: s08 :: s09 :: s10 :: s11 :: s12 :: s13 :: s14 :: rest)
+    → Stack (s14 :: s01 :: s02 :: s03 :: s04 :: s05 :: s06 :: s07 :: s08 :: s09 :: s10 :: s11 :: s12 :: s13 :: s00 :: rest)
+  | Swap15
+    : Stack (s00 :: s01 :: s02 :: s03 :: s04 :: s05 :: s06 :: s07 :: s08 :: s09 :: s10 :: s11 :: s12 :: s13 :: s14 :: s15 :: rest)
+    → Stack (s15 :: s01 :: s02 :: s03 :: s04 :: s05 :: s06 :: s07 :: s08 :: s09 :: s10 :: s11 :: s12 :: s13 :: s14 :: s00 :: rest)
+  | Swap16
+    : Stack (s00 :: s01 :: s02 :: s03 :: s04 :: s05 :: s06 :: s07 :: s08 :: s09 :: s10 :: s11 :: s12 :: s13 :: s14 :: s15 :: s16 :: rest)
+    → Stack (s16 :: s01 :: s02 :: s03 :: s04 :: s05 :: s06 :: s07 :: s08 :: s09 :: s10 :: s11 :: s12 :: s13 :: s14 :: s15 :: s00 :: rest)
+  | Dup1
+    : Stack (s00 :: rest)
+    → Stack (s00 :: s00 :: rest)
+  | Dup2
+    : Stack (s00 :: s01 :: rest)
+    → Stack (s01 :: s00 :: s01 :: rest)
+  | Dup3
+    : Stack (s00 :: s01 :: s02 :: rest)
+    → Stack (s02 :: s00 :: s01 :: s02 :: rest)
+  | Dup4
+    : Stack (s00 :: s01 :: s02 :: s03 :: rest)
+    → Stack (s03 :: s00 :: s01 :: s02 :: s03 :: rest)
+  | Dup5
+    : Stack (s00 :: s01 :: s02 :: s03 :: s04 :: rest)
+    → Stack (s04 :: s00 :: s01 :: s02 :: s03 :: s04 :: rest)
+  | Dup6
+    : Stack (s00 :: s01 :: s02 :: s03 :: s04 :: s05 :: rest)
+    → Stack (s05 :: s00 :: s01 :: s02 :: s03 :: s04 :: s05 :: rest)
+  | Dup7
+    : Stack (s00 :: s01 :: s02 :: s03 :: s04 :: s05 :: s06 :: rest)
+    → Stack (s06 :: s00 :: s01 :: s02 :: s03 :: s04 :: s05 :: s06 :: rest)
+  | Dup8
+    : Stack (s00 :: s01 :: s02 :: s03 :: s04 :: s05 :: s06 :: s07 :: rest)
+    → Stack (s07 :: s00 :: s01 :: s02 :: s03 :: s04 :: s05 :: s06 :: s07 :: rest)
+  | Dup9
+    : Stack (s00 :: s01 :: s02 :: s03 :: s04 :: s05 :: s06 :: s07 :: s08 :: rest)
+    → Stack (s08 :: s00 :: s01 :: s02 :: s03 :: s04 :: s05 :: s06 :: s07 :: s08 :: rest)
+  | Dup10
+    : Stack (s00 :: s01 :: s02 :: s03 :: s04 :: s05 :: s06 :: s07 :: s08 :: s09 :: rest)
+    → Stack (s09 :: s00 :: s01 :: s02 :: s03 :: s04 :: s05 :: s06 :: s07 :: s08 :: s09 :: rest)
+  | Dup11
+    : Stack (s00 :: s01 :: s02 :: s03 :: s04 :: s05 :: s06 :: s07 :: s08 :: s09 :: s10 :: rest)
+    → Stack (s10 :: s00 :: s01 :: s02 :: s03 :: s04 :: s05 :: s06 :: s07 :: s08 :: s09 :: s10 :: rest)
+  | Dup12
+    : Stack (s00 :: s01 :: s02 :: s03 :: s04 :: s05 :: s06 :: s07 :: s08 :: s09 :: s10 :: s11 :: rest)
+    → Stack (s11 :: s00 :: s01 :: s02 :: s03 :: s04 :: s05 :: s06 :: s07 :: s08 :: s09 :: s10 :: s11 :: rest)
+  | Dup13
+    : Stack (s00 :: s01 :: s02 :: s03 :: s04 :: s05 :: s06 :: s07 :: s08 :: s09 :: s10 :: s11 :: s12 :: rest)
+    → Stack (s12 :: s00 :: s01 :: s02 :: s03 :: s04 :: s05 :: s06 :: s07 :: s08 :: s09 :: s10 :: s11 :: s12 :: rest)
+  | Dup14
+    : Stack (s00 :: s01 :: s02 :: s03 :: s04 :: s05 :: s06 :: s07 :: s08 :: s09 :: s10 :: s11 :: s12 :: s13 :: rest)
+    → Stack (s13 :: s00 :: s01 :: s02 :: s03 :: s04 :: s05 :: s06 :: s07 :: s08 :: s09 :: s10 :: s11 :: s12 :: s13 :: rest)
+  | Dup15
+    : Stack (s00 :: s01 :: s02 :: s03 :: s04 :: s05 :: s06 :: s07 :: s08 :: s09 :: s10 :: s11 :: s12 :: s13 :: s14 :: rest)
+    → Stack (s14 :: s00 :: s01 :: s02 :: s03 :: s04 :: s05 :: s06 :: s07 :: s08 :: s09 :: s10 :: s11 :: s12 :: s13 :: s14 :: rest)
+  | Dup16
+    : Stack (s00 :: s01 :: s02 :: s03 :: s04 :: s05 :: s06 :: s07 :: s08 :: s09 :: s10 :: s11 :: s12 :: s13 :: s14 :: s15 :: rest)
+    → Stack (s15 :: s00 :: s01 :: s02 :: s03 :: s04 :: s05 :: s06 :: s07 :: s08 :: s09 :: s10 :: s11 :: s12 :: s13 :: s14 :: s15 :: rest)
 
-abbrev FinIn (range: Set ℕ) := { val : Nat // val ∈ range }
-
-inductive Stack' : List Slot → Type where
-  | Lit : (stk : List Slot) → Stack' stk
-  | Swap1 : Stack' (a :: b :: rest) → Stack' (b :: a :: rest)
-  | Swap2 : Stack' (a :: b :: c :: rest) → Stack' (c :: b :: a :: rest)
-  | Swap3 : Stack' (a :: b :: c :: d :: rest) → Stack' (d :: b :: c :: a :: rest)
-  | Swap4 : Stack' (a :: b :: c :: d :: e :: rest) → Stack' (e :: b :: c :: d :: a :: rest)
-  | Swap5 : Stack' (a :: b :: c :: d :: e :: f :: rest) → Stack' (f :: b :: c :: d :: e :: a :: rest)
-  | Swap6 : Stack' (a :: b :: c :: d :: e :: f :: g :: rest) → Stack' (g :: b :: c :: d :: e :: f :: a :: rest)
-
-def s := Stack'.Lit [.Lit 0, .Lit 1] |> Stack'.Swap1
-
-inductive Stack'' : Vector Slot sz → Type where
-  | Lit : (stk : Vector Slot sz) → Stack'' stk
-
+def s := Stack.Lit [.Lit 0, .Lit 1] |> Stack.Swap1
 
 -- Stacks ---
 
