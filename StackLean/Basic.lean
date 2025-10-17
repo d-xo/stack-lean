@@ -48,6 +48,9 @@ def LSet.ofList [DecidableEq α] : (vs : List α) → LSet α
           · apply rest.property
       ⟩
 
+instance [DecidableEq α] : Union (LSet α) where
+  union l r := LSet.ofList (l.val ++ r.val)
+
 --- Stack Slots ---
 
 -- A var is a newtype around a Nat
@@ -68,65 +71,80 @@ def slotToVar : Slot → Option Var
   | .Lit _ => none
   | .Junk => none
 
+--- Stacks ---
+
+abbrev Stack := List Slot
+
+def Stack.vars (stack : Stack) : LSet Var := stack |> List.filterMap slotToVar |> LSet.ofList
+
 --- Targets ---
 
 -- A target is a specification of a desired shuffle outcome
 structure Target where
   -- a concrete args section that must have a specific order and multiplicity
-  args : List Slot
+  args : Stack
   -- an abstract tail section that is a set of variables that must remain live for downstream ops
   liveOut : LSet Var
   -- the size of the target stack
   size : { n : ℕ // n ≥ args.length + liveOut.val.length }
 
---- Stacks ---
+--- Traces ---
 
-inductive Stack where
-  | Lit : (stk : List Slot) → Stack
-  | Swap : ℕ → Stack → Stack
-  | Dup : ℕ → Stack → Stack
-  | Pop : Stack → Stack
-  | Push : Word → Stack → Stack
-  | MarkJunk : ℕ → Stack → Stack
+inductive Trace where
+  | Lit : (stk : Stack) → Trace
+  | Swap : ℕ → Trace → Trace
+  | Dup : ℕ → Trace → Trace
+  | Pop : Trace → Trace
+  | Push : Word → Trace → Trace
+  | MarkJunk : ℕ → Trace → Trace
+  deriving Repr
+
+def Trace.start : Trace → Stack
+  | .Lit s => s
+  | .Swap _ t => t.start
+  | .Dup _ t => t.start
+  | .Pop t => t.start
+  | .Push _ t => t.start
+  | .MarkJunk _ t => t.start
 
 def List.swap {α : Type u} (xs : List α) (i j : ℕ) (hi : i < xs.length := by get_elem_tactic) (hj : j < xs.length := by get_elem_tactic) := (xs.set i xs[j]).set j xs[i]
 
-inductive Stack.eval : Stack → (List Slot) → Prop where
-  | Lit : Stack.eval (.Lit s) s
+inductive Trace.valid : Trace → (Stack) → Prop where
+  | Lit : Trace.valid (.Lit s) s
   | Swap
-    : Stack.eval s res
+    : Trace.valid s res
     → (hlen : res.length > idx)
     → (hlo : 0 < idx)
     → (hhi : idx < 17)
-    → Stack.eval (.Swap idx s) (res.swap 0 idx)
+    → Trace.valid (.Swap idx s) (res.swap 0 idx)
   | Dup
-    : Stack.eval s res
+    : Trace.valid s res
     → (hlen : idx < res.length)
     → (hlo : 1 ≤ idx)
     → (hhi : idx < 17)
-    → Stack.eval (.Dup idx s) (res[idx] :: res)
+    → Trace.valid (.Dup idx s) (res[idx] :: res)
   | Pop
-    : Stack.eval s res
+    : Trace.valid s res
     → (hlen : 0 < res.length)
-    → Stack.eval (.Pop s) res.tail
+    → Trace.valid (.Pop s) res.tail
   | Push
-    : Stack.eval s res
-    → Stack.eval (.Push word s) (.Lit word :: res)
+    : Trace.valid s res
+    → Trace.valid (.Push word s) (.Lit word :: res)
   | MarkJunk
-    : Stack.eval s res
+    : Trace.valid s res
     → (hlen : idx < res.length)
-    → Stack.eval (.MarkJunk idx s) (res.set idx .Junk)
+    → Trace.valid (.MarkJunk idx s) (res.set idx .Junk)
 
 
 -- apply theorems --
 
 -- dup grows stack size by 1
-theorem apply_dup_grows_stack (stack : List Slot) (idx : ℕ) (heval : Stack.eval (.Dup idx (.Lit stack)) res) : res.length = stack.length + 1 := match heval with
+theorem apply_dup_grows_stack (stack : Stack) (idx : ℕ) (heval : Trace.valid (.Dup idx (.Lit stack)) res) : res.length = stack.length + 1 := match heval with
   | .Dup .Lit hlen hlo hhi => by simp_all
 
 
 -- applying swap at the same idx twice is a noop
-theorem apply_swap_inv (stack : List Slot) (idx : ℕ) (heval : Stack.eval (.Lit stack |> .Swap idx |> .Swap idx) res) : res = stack := match heval with
+theorem apply_swap_inv (stack : Stack) (idx : ℕ) (heval : Trace.valid (.Lit stack |> .Swap idx |> .Swap idx) res) : res = stack := match heval with
   | .Swap (.Swap .Lit hlen' hlo' hhi') hlen hlo hhi => by
     simp_all [List.swap, List.getElem_set]
     split_ifs
@@ -138,32 +156,27 @@ theorem apply_swap_inv (stack : List Slot) (idx : ℕ) (heval : Stack.eval (.Lit
 
 --- Stack Shuffling ---
 
-inductive ShuffleResult where
-  | StackTooDeep
-  | ForbiddenState
-  | ResultStack (start : List Slot) (finish : List Slot) (valid : Stack.eval (.Lit start) finish)
-  deriving Repr
 
 @[simp]
-abbrev stack_is_large_enough (stack : List Slot) (target : Target) : Prop := stack.length ≥ target.args.length + target.liveOut.val.length
+abbrev stack_is_large_enough (stack : Stack) (target : Target) : Prop := stack.length ≥ target.args.length + target.liveOut.val.length
 
 @[simp]
-abbrev args_is_correct (stack: List Slot) (target : Target) : Prop :=
+abbrev args_is_correct (stack: Stack) (target : Target) : Prop :=
   have hidx : (hle : stack_is_large_enough stack target) -> ∀ i, i < target.args.length → i < stack.length := by omega
   have thidx : ∀ i, i < target.args.length → i < target.args.length := by omega
 
   (stack_is_large_enough stack target) ∧ ((hle : stack_is_large_enough stack target) → ∀ (i : ℕ), (hn : i < target.args.length) → stack[i]'(hidx hle i hn) = target.args[i]'(thidx i hn))
 
 @[simp]
-abbrev tail_is_compatible (stack: List Slot) (target : Target) : Prop :=
+abbrev tail_is_compatible (stack: Stack) (target : Target) : Prop :=
   ∀ (v : Var), v ∈ target.liveOut → (.Var v) ∈ stack.drop target.args.length
 
 @[simp]
-abbrev is_compatible (stack: List Slot) (target : Target) : Prop :=
+abbrev is_compatible (stack: Stack) (target : Target) : Prop :=
   (stack_is_large_enough stack target) ∧ (args_is_correct stack target) ∧ (tail_is_compatible stack target)
 
-def distance (stack : List Slot) (target : Target) : ℕ :=
-  let compare (l : List Slot) (r : List Slot) : ℕ
+def distance (stack : Stack) (target : Target) : ℕ :=
+  let compare (l : Stack) (r : Stack) : ℕ
     := l
     |> List.zip r
     |> List.map (λ (l,r) => if l = r then 0 else 1)
@@ -181,34 +194,58 @@ def distance (stack : List Slot) (target : Target) : ℕ :=
     if stack.length < target.size
     then stack.length - (target.size - target.args.length)
     else target.args.length + (stack.length - target.size)
-  let tailVars := stack |> List.drop (dropLen) |> List.filterMap slotToVar |> LSet.ofList
+  let tailVars := stack |> List.drop (dropLen) |> Stack.vars
   let tail_difference := (target.liveOut - tailVars).val.length
 
   deficit + args_wrong + tail_difference
 
 #eval distance [.Var 42, .Var 55, .Var 66] (Target.mk [.Var 42, .Var 55, .Var 66] (LSet.ofList [42]) ⟨10, by simp[LSet.ofList]; aesop⟩)
 
--- TODO: target can only be reached from stack if the variable set of target ⊆ the variable set of stack
-def shuffle (stack : List Slot) (target : Target) : ShuffleResult :=
-  if (args_is_correct stack target)
-  then
-    if (tail_is_compatible stack target)
-    then .ResultStack stack stack .Lit
-    else .StackTooDeep
-  else .StackTooDeep
+abbrev input_contains_all_target_vars (input : Stack) (target : Target) : Prop := List.Subset (target.args.vars ∪ target.liveOut).val input.vars.val
 
-#eval shuffle [.Var 33, .Var 33, .Var 33] (Target.mk [.Var 33, .Var 33] (LSet.ofList [33]) ⟨3, by simp[LSet.ofList]; aesop⟩)
+inductive ShuffleResult where
+  | StackTooDeep
+  | ForbiddenState
+  | ResultStack (trace : Trace) (finish : Stack) (valid : Trace.valid trace finish)
+  deriving Repr
+
+mutual
+
+-- TODO: target can only be reached from stack if the variable set of target ⊆ the variable set of stack
+def shuffle (stack : Stack) (target : Target) (precondition : input_contains_all_target_vars stack target) : ShuffleResult
+  := shuffle.go (.Lit stack) .Lit target
+
+@[simp]
+def shuffle.go  (trace : Trace) (valid : Trace.valid trace state) (target : Target) : ShuffleResult :=
+  if (args_is_correct state target)
+  then
+    if (tail_is_compatible state target)
+    then .ResultStack trace _ valid
+    else
+      have : distance (Slot.Lit 2 :: state) target < distance state target := sorry
+      shuffle.go (.Push 2 trace) (.Push valid) target
+  else .StackTooDeep
+  termination_by (distance state target)
+
+-- def shuffleStep_dupMissingTailElement (stack : Stack) (target : Target) : ShuffleResult :=
+--   if false
+--   then shuffle stack target
+--   else .StackTooDeep
+
+end
+
+-- #eval shuffle [.Var 33, .Var 33, .Var 33] (Target.mk [.Var 33, .Var 33] (LSet.ofList [33]) ⟨3, by simp[LSet.ofList]; aesop⟩)
 
 -- for every stack and target
-theorem shuffle_correct (stack : List Slot) (target : Target) :
+theorem shuffle_correct (stack : Stack) (target : Target) (hvars : input_contains_all_target_vars stack target) :
    -- the result of a shuffle is either:
-   match shuffle stack target with
+   match shuffle stack target hvars with
      -- a valid sequence of ops from the input to a result stack compatible with the target
-     | .ResultStack start rstack _ => start = stack ∧ is_compatible rstack target
+     | .ResultStack trace finish valid => start = stack ∧ is_compatible rstack target
      -- a stack too deep
      | .StackTooDeep => True
      -- we never enter the forbidden state
      | .ForbiddenState => False
    := by
-       simp_all [shuffle]
-       split_ifs <;> simp_all
+      simp_all [shuffle]
+      split_ifs <;> simp_all
