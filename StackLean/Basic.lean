@@ -3,6 +3,8 @@ import Mathlib.Order.Interval.Basic
 import Mathlib.Data.List.Nodup
 import Init.Data.Vector.Basic
 import Aesop
+import Mathlib.Tactic.Linarith.Frontend
+import Mathlib.Data.Finset.Fold
 
 --- Basic Types ---
 
@@ -59,6 +61,11 @@ inductive Slot where
 instance : LawfulBEq Var := inferInstance
 instance : LawfulBEq Slot := inferInstance
 
+def slotToVar : Slot → Option Var
+  | .Var v => some v
+  | .Lit _ => none
+  | .Junk => none
+
 --- Targets ---
 
 -- A target is a specification of a desired shuffle outcome
@@ -68,7 +75,7 @@ structure Target where
   -- an abstract tail section that is a set of variables that must remain live for downstream ops
   liveOut : LSet Var
   -- the size of the target stack
-  size : ℕ
+  size : { n : ℕ // n ≥ args.length + liveOut.val.length }
 
 --- Stacks ---
 
@@ -153,8 +160,88 @@ abbrev is_compatible (stack: List Slot) (target : Target) : Prop :=
   (stack_is_large_enough stack target) ∧ (args_is_correct stack target) ∧ (tail_is_compatible stack target)
 
 def distance (stack : List Slot) (target : Target) : ℕ :=
-  let correct_args := sorry
+  let offsets : Set ℕ := { n | n < target.size }
+  let argOffsets : Set ℕ := { n | n < target.size ∧ n ≥ target.size - target.args.length }
+  let argMismatches := { offset ∈ argOffsets | offset ∈ argOffsets ∧ ((offset ≥ stack.length ∨ ((hoff : offset < stack.length) →
+    target.args[target.size - offset - 1]'(by sorry) ≠ stack[offset])))
+  }
+  let correct_args : Nat := sorry
   sorry
+
+def distance' (stack : List Slot) (target : Target) : ℕ :=
+  let offsets := List.range target.size
+  List.sum $ offsets.map (λ off =>
+    if hoff : off > stack.length then 1
+    else if hargoff : off ≥ target.size - target.args.length
+      then if
+        have : off ≤ stack.length := by simp_all
+        have : target.size ≥ target.args.length + target.liveOut.val.length := target.size.property
+
+        have : target.size ≥ target.args.length := by omega
+        have : target.args.length ≤ stack.length := by sorry
+        have : off ≤ target.size := by omega
+
+        have : target.size - off - 1 < stack.length := by
+
+
+
+          omega
+        have : target.size - off - 1 < target.args.length := by sorry
+        stack[target.size - off - 1] ≠ target.args[target.size - off - 1]
+        then 1
+        else 0
+      else 0
+  )
+
+def distance'' (stack : List Slot) (target : Target) : ℕ :=
+  let offsets := Finset.range target.size
+  let indicator := λ (off : ℕ) =>
+    if hrange : off ≥ target.size then 0
+    else if hoff : off > stack.length then 1
+    else if hargoff : off ≥ target.size - target.args.length
+      then if
+        have : off ≤ stack.length := by simp_all
+        have : target.size ≥ target.args.length + target.liveOut.val.length := target.size.property
+
+        have : target.size ≥ target.args.length := by omega
+        have : off < target.size := by omega
+        have : off ≥ target.liveOut.val.length := by omega
+        have : target.args.length ≤ stack.length := by
+
+          omega
+        have : target.size - off - 1 < stack.length := by omega
+        have : target.size - off - 1 < target.args.length := by omega
+        stack[target.size - off - 1] ≠ target.args[target.size - off - 1]
+        then 1
+        else 0
+      else 0
+
+  Finset.fold (· + ·) 0 indicator offsets
+
+def distance''' (stack : List Slot) (target : Target) : ℕ :=
+  let compare (l : List Slot) (r : List Slot) : ℕ
+    := l
+    |> List.zip r
+    |> List.map (λ (l,r) => if l = r then 0 else 1)
+    |> List.sum
+
+  let deficit := (Int.ofNat stack.length - Int.ofNat target.size).natAbs
+
+  let args_wrong :=
+    if stack.length < target.size then
+      target.args |> List.drop (target.size - stack.length) |> compare stack
+    else
+      stack |> List.drop (stack.length - target.size) |> List.take target.args.length |> compare target.args
+
+  let dropLen :=
+    if stack.length < target.size
+    then stack.length - (target.size - target.args.length)
+    else target.args.length + (stack.length - target.size)
+  let tailVars := stack |> List.drop (dropLen) |> List.filterMap slotToVar |> LSet.ofList
+  let tail_difference := (target.liveOut - tailVars).val.length
+
+
+  deficit + args_wrong + tail_difference
 
 -- TODO: target can only be reached from stack if the variable set of target ⊆ the variable set of stack
 def shuffle (stack : List Slot) (target : Target) : ShuffleResult :=
