@@ -160,65 +160,6 @@ abbrev is_compatible (stack: List Slot) (target : Target) : Prop :=
   (stack_is_large_enough stack target) ∧ (args_is_correct stack target) ∧ (tail_is_compatible stack target)
 
 def distance (stack : List Slot) (target : Target) : ℕ :=
-  let offsets : Set ℕ := { n | n < target.size }
-  let argOffsets : Set ℕ := { n | n < target.size ∧ n ≥ target.size - target.args.length }
-  let argMismatches := { offset ∈ argOffsets | offset ∈ argOffsets ∧ ((offset ≥ stack.length ∨ ((hoff : offset < stack.length) →
-    target.args[target.size - offset - 1]'(by sorry) ≠ stack[offset])))
-  }
-  let correct_args : Nat := sorry
-  sorry
-
-def distance' (stack : List Slot) (target : Target) : ℕ :=
-  let offsets := List.range target.size
-  List.sum $ offsets.map (λ off =>
-    if hoff : off > stack.length then 1
-    else if hargoff : off ≥ target.size - target.args.length
-      then if
-        have : off ≤ stack.length := by simp_all
-        have : target.size ≥ target.args.length + target.liveOut.val.length := target.size.property
-
-        have : target.size ≥ target.args.length := by omega
-        have : target.args.length ≤ stack.length := by sorry
-        have : off ≤ target.size := by omega
-
-        have : target.size - off - 1 < stack.length := by
-
-
-
-          omega
-        have : target.size - off - 1 < target.args.length := by sorry
-        stack[target.size - off - 1] ≠ target.args[target.size - off - 1]
-        then 1
-        else 0
-      else 0
-  )
-
-def distance'' (stack : List Slot) (target : Target) : ℕ :=
-  let offsets := Finset.range target.size
-  let indicator := λ (off : ℕ) =>
-    if hrange : off ≥ target.size then 0
-    else if hoff : off > stack.length then 1
-    else if hargoff : off ≥ target.size - target.args.length
-      then if
-        have : off ≤ stack.length := by simp_all
-        have : target.size ≥ target.args.length + target.liveOut.val.length := target.size.property
-
-        have : target.size ≥ target.args.length := by omega
-        have : off < target.size := by omega
-        have : off ≥ target.liveOut.val.length := by omega
-        have : target.args.length ≤ stack.length := by
-
-          omega
-        have : target.size - off - 1 < stack.length := by omega
-        have : target.size - off - 1 < target.args.length := by omega
-        stack[target.size - off - 1] ≠ target.args[target.size - off - 1]
-        then 1
-        else 0
-      else 0
-
-  Finset.fold (· + ·) 0 indicator offsets
-
-def distance''' (stack : List Slot) (target : Target) : ℕ :=
   let compare (l : List Slot) (r : List Slot) : ℕ
     := l
     |> List.zip r
