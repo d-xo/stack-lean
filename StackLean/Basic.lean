@@ -15,6 +15,9 @@ abbrev Word := Fin (2 ^ 256)
 -- We use a subtype here since it's more friendly to computable iteration than the mathlib sets
 def LSet (α : Type) := { l : List α // List.Nodup l }
 
+instance : EmptyCollection (LSet α) where
+  emptyCollection := ⟨[], by simp⟩
+
 instance : Membership α (LSet α) where
   mem (t : LSet α) (v : α) := v ∈ t.val
 
@@ -48,15 +51,14 @@ def LSet.ofList [DecidableEq α] : (vs : List α) → LSet α
 --- Stack Slots ---
 
 -- A var is a newtype around a Nat
-def Var := ℕ
-  deriving DecidableEq
+abbrev Var := ℕ
 
 -- In addition to variables, slots can contain literals and junk elems
 inductive Slot where
   | Var : Var → Slot
   | Lit : Word → Slot
   | Junk : Slot
-  deriving DecidableEq
+  deriving DecidableEq, Repr
 
 instance : LawfulBEq Var := inferInstance
 instance : LawfulBEq Slot := inferInstance
@@ -140,6 +142,7 @@ inductive ShuffleResult where
   | StackTooDeep
   | ForbiddenState
   | ResultStack (start : List Slot) (finish : List Slot) (valid : Stack.eval (.Lit start) finish)
+  deriving Repr
 
 @[simp]
 abbrev stack_is_large_enough (stack : List Slot) (target : Target) : Prop := stack.length ≥ target.args.length + target.liveOut.val.length
@@ -181,8 +184,9 @@ def distance (stack : List Slot) (target : Target) : ℕ :=
   let tailVars := stack |> List.drop (dropLen) |> List.filterMap slotToVar |> LSet.ofList
   let tail_difference := (target.liveOut - tailVars).val.length
 
-
   deficit + args_wrong + tail_difference
+
+#eval distance [.Var 42, .Var 55, .Var 66] (Target.mk [.Var 42, .Var 55, .Var 66] (LSet.ofList [42]) ⟨10, by simp[LSet.ofList]; aesop⟩)
 
 -- TODO: target can only be reached from stack if the variable set of target ⊆ the variable set of stack
 def shuffle (stack : List Slot) (target : Target) : ShuffleResult :=
@@ -192,6 +196,8 @@ def shuffle (stack : List Slot) (target : Target) : ShuffleResult :=
     then .ResultStack stack stack .Lit
     else .StackTooDeep
   else .StackTooDeep
+
+#eval shuffle [.Var 33, .Var 33, .Var 33] (Target.mk [.Var 33, .Var 33] (LSet.ofList [33]) ⟨3, by simp[LSet.ofList]; aesop⟩)
 
 -- for every stack and target
 theorem shuffle_correct (stack : List Slot) (target : Target) :
