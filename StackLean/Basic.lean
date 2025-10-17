@@ -46,7 +46,7 @@ def LSet.ofList [DecidableEq α] : (vs : List α) → LSet α
 --- Stack Slots ---
 
 -- A var is a newtype around a Nat
-def Var := Nat
+def Var := ℕ
   deriving DecidableEq
 
 -- In addition to variables, slots can contain literals and junk elems
@@ -67,18 +67,20 @@ structure Target where
   args : List Slot
   -- an abstract tail section that is a set of variables that must remain live for downstream ops
   liveOut : LSet Var
+  -- the size of the target stack
+  size : ℕ
 
 --- Stacks ---
 
 inductive Stack where
   | Lit : (stk : List Slot) → Stack
-  | Swap : Nat → Stack → Stack
-  | Dup : Nat → Stack → Stack
+  | Swap : ℕ → Stack → Stack
+  | Dup : ℕ → Stack → Stack
   | Pop : Stack → Stack
   | Push : Word → Stack → Stack
-  | MarkJunk : Nat → Stack → Stack
+  | MarkJunk : ℕ → Stack → Stack
 
-def List.swap {α : Type u} (xs : List α) (i j : Nat) (hi : i < xs.length := by get_elem_tactic) (hj : j < xs.length := by get_elem_tactic) := (xs.set i xs[j]).set j xs[i]
+def List.swap {α : Type u} (xs : List α) (i j : ℕ) (hi : i < xs.length := by get_elem_tactic) (hj : j < xs.length := by get_elem_tactic) := (xs.set i xs[j]).set j xs[i]
 
 inductive Stack.eval : Stack → (List Slot) → Prop where
   | Lit : Stack.eval (.Lit s) s
@@ -110,12 +112,12 @@ inductive Stack.eval : Stack → (List Slot) → Prop where
 -- apply theorems --
 
 -- dup grows stack size by 1
-theorem apply_dup_grows_stack (stack : List Slot) (idx : Nat) (heval : Stack.eval (.Dup idx (.Lit stack)) res) : res.length = stack.length + 1 := match heval with
+theorem apply_dup_grows_stack (stack : List Slot) (idx : ℕ) (heval : Stack.eval (.Dup idx (.Lit stack)) res) : res.length = stack.length + 1 := match heval with
   | .Dup .Lit hlen hlo hhi => by simp_all
 
 
 -- applying swap at the same idx twice is a noop
-theorem apply_swap_inv (stack : List Slot) (idx : Nat) (heval : Stack.eval (.Lit stack |> .Swap idx |> .Swap idx) res) : res = stack := match heval with
+theorem apply_swap_inv (stack : List Slot) (idx : ℕ) (heval : Stack.eval (.Lit stack |> .Swap idx |> .Swap idx) res) : res = stack := match heval with
   | .Swap (.Swap .Lit hlen' hlo' hhi') hlen hlo hhi => by
     simp_all [List.swap, List.getElem_set]
     split_ifs
@@ -140,7 +142,7 @@ abbrev args_is_correct (stack: List Slot) (target : Target) : Prop :=
   have hidx : (hle : stack_is_large_enough stack target) -> ∀ i, i < target.args.length → i < stack.length := by omega
   have thidx : ∀ i, i < target.args.length → i < target.args.length := by omega
 
-  (stack_is_large_enough stack target) ∧ ((hle : stack_is_large_enough stack target) → ∀ (i : Nat), (hn : i < target.args.length) → stack[i]'(hidx hle i hn) = target.args[i]'(thidx i hn))
+  (stack_is_large_enough stack target) ∧ ((hle : stack_is_large_enough stack target) → ∀ (i : ℕ), (hn : i < target.args.length) → stack[i]'(hidx hle i hn) = target.args[i]'(thidx i hn))
 
 @[simp]
 abbrev tail_is_compatible (stack: List Slot) (target : Target) : Prop :=
@@ -149,6 +151,10 @@ abbrev tail_is_compatible (stack: List Slot) (target : Target) : Prop :=
 @[simp]
 abbrev is_compatible (stack: List Slot) (target : Target) : Prop :=
   (stack_is_large_enough stack target) ∧ (args_is_correct stack target) ∧ (tail_is_compatible stack target)
+
+def distance (stack : List Slot) (target : Target) : ℕ :=
+  let correct_args := sorry
+  sorry
 
 -- TODO: target can only be reached from stack if the variable set of target ⊆ the variable set of stack
 def shuffle (stack : List Slot) (target : Target) : ShuffleResult :=
@@ -159,13 +165,16 @@ def shuffle (stack : List Slot) (target : Target) : ShuffleResult :=
     else .StackTooDeep
   else .StackTooDeep
 
-theorem shuffle_correct : ∀ (stack : List Slot) (target : Target), ∃ (res : ShuffleResult) (rstack : List Slot) (trace : Stack.eval (.Lit stack) rstack),
-  res = shuffle stack target → ((.ResultStack stack rstack trace = shuffle stack target ∧ is_compatible rstack target) ∨ .StackTooDeep = res)
-    := by
-        intros stack target
-        exact ⟨.ResultStack stack stack .Lit, stack, .Lit , by
-          intro hres
-          simp [shuffle]
-          simp [shuffle] at hres
-          split_ifs with hargs htail <;> simp_all
-        ⟩
+-- for every stack and target
+theorem shuffle_correct (stack : List Slot) (target : Target) :
+   -- the result of a shuffle is either:
+   match shuffle stack target with
+     -- a valid sequence of ops from the input to a result stack compatible with the target
+     | .ResultStack start rstack _ => start = stack ∧ is_compatible rstack target
+     -- a stack too deep
+     | .StackTooDeep => True
+     -- we never enter the forbidden state
+     | .ForbiddenState => False
+   := by
+       simp_all [shuffle]
+       split_ifs <;> simp_all
