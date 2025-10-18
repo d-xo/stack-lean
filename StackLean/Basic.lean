@@ -2,6 +2,7 @@ import Mathlib.Data.Finset.Basic
 import Mathlib.Order.Interval.Basic
 import Mathlib.Data.List.Nodup
 import Init.Data.Vector.Basic
+import Init.Data.Nat
 import Aesop
 import Mathlib.Tactic.Linarith.Frontend
 import Mathlib.Data.Finset.Fold
@@ -18,11 +19,19 @@ def LSet (α : Type) := { l : List α // List.Nodup l }
 instance : EmptyCollection (LSet α) where
   emptyCollection := ⟨[], by simp⟩
 
-instance : Membership α (LSet α) where
+instance [DecidableEq α] : Membership α (LSet α) where
   mem (t : LSet α) (v : α) := v ∈ t.val
 
 instance (t : LSet α) (v : α) [DecidableEq α] : Decidable (v ∈ t) :=
   inferInstanceAs (Decidable (v ∈ t.val))
+
+def LSet.toFinset (ls : LSet α) : Finset α := ⟨ls.val, by simp [ls.property]⟩
+
+instance : HasSubset (LSet α) where
+  Subset l r := List.Subset l.val r.val
+
+instance (l r : LSet α) [DecidableEq α] : Decidable (l ⊆ r) :=
+  inferInstanceAs (Decidable (l.toFinset ⊆ r.toFinset))
 
 instance [DecidableEq α] : Sub (LSet α) where
   sub (lhs : LSet α) (rhs : LSet α) : LSet α :=
@@ -75,7 +84,7 @@ def slotToVar : Slot → Option Var
 
 abbrev Stack := List Slot
 
-def Stack.vars (stack : Stack) : LSet Var := stack |> List.filterMap slotToVar |> LSet.ofList
+def List.vars (stack : Stack) : LSet Var := stack |> List.filterMap slotToVar |> LSet.ofList
 
 --- Targets ---
 
@@ -87,6 +96,8 @@ structure Target where
   liveOut : LSet Var
   -- the size of the target stack
   size : { n : ℕ // n ≥ args.length + liveOut.val.length }
+
+def Target.vars (target : Target) : LSet Var := target.args.vars ∪ target.liveOut
 
 --- Traces ---
 
@@ -109,7 +120,7 @@ def Trace.start : Trace → Stack
 
 def List.swap {α : Type u} (xs : List α) (i j : ℕ) (hi : i < xs.length := by get_elem_tactic) (hj : j < xs.length := by get_elem_tactic) := (xs.set i xs[j]).set j xs[i]
 
-inductive Trace.valid : Trace → (Stack) → Prop where
+inductive Trace.valid : Trace → Stack → Prop where
   | Lit : Trace.valid (.Lit s) s
   | Swap
     : Trace.valid s res
@@ -194,14 +205,18 @@ def distance (stack : Stack) (target : Target) : ℕ :=
     if stack.length < target.size
     then stack.length - (target.size - target.args.length)
     else target.args.length + (stack.length - target.size)
-  let tailVars := stack |> List.drop (dropLen) |> Stack.vars
+  let tailVars := stack |> List.drop (dropLen) |> List.vars
   let tail_difference := (target.liveOut - tailVars).val.length
 
   deficit + args_wrong + tail_difference
 
 #eval distance [.Var 42, .Var 55, .Var 66] (Target.mk [.Var 42, .Var 55, .Var 66] (LSet.ofList [42]) ⟨10, by simp[LSet.ofList]; aesop⟩)
 
-abbrev input_contains_all_target_vars (input : Stack) (target : Target) : Prop := List.Subset (target.args.vars ∪ target.liveOut).val input.vars.val
+@[simp]
+abbrev input_contains_all_target_vars (input : Stack) (target : Target) : Prop := target.vars ⊆ input.vars
+
+instance (input : Stack) (target : Target) : Decidable (input_contains_all_target_vars input target) :=
+  inferInstanceAs (Decidable (target.vars ⊆ input.vars))
 
 inductive ShuffleResult where
   | StackTooDeep
@@ -217,15 +232,24 @@ def shuffle (stack : Stack) (target : Target) (precondition : input_contains_all
 
 @[simp]
 def shuffle.go  (trace : Trace) (valid : Trace.valid trace state) (target : Target) : ShuffleResult :=
-  if (args_is_correct state target)
-  then
-    if (tail_is_compatible state target)
+  if args_is_correct state target then
+    if tail_is_compatible state target
     then .ResultStack trace _ valid
+    else .StackTooDeep
+
+  -- if we have too much stuff
+  else if hlen : state.length > target.size then
+    if hcan_pop : input_contains_all_target_vars state.tail target then
+      have : distance (List.tail state) target < distance state target := by
+        clear hcan_pop; simp [distance]; split_ifs <;> grind
+      shuffle.go (.Pop trace) (.Pop valid (by omega)) target
     else
-      have : distance (Slot.Lit 2 :: state) target < distance state target := sorry
-      shuffle.go (.Push 2 trace) (.Push valid) target
-  else .StackTooDeep
+      .StackTooDeep
+
+  else
+    .StackTooDeep
   termination_by (distance state target)
+
 
 -- def shuffleStep_dupMissingTailElement (stack : Stack) (target : Target) : ShuffleResult :=
 --   if false
@@ -241,11 +265,32 @@ theorem shuffle_correct (stack : Stack) (target : Target) (hvars : input_contain
    -- the result of a shuffle is either:
    match shuffle stack target hvars with
      -- a valid sequence of ops from the input to a result stack compatible with the target
-     | .ResultStack trace finish valid => start = stack ∧ is_compatible rstack target
+     | .ResultStack trace finish valid => trace.start = stack ∧ is_compatible finish target
      -- a stack too deep
      | .StackTooDeep => True
      -- we never enter the forbidden state
      | .ForbiddenState => False
    := by
-      simp_all [shuffle]
-      split_ifs <;> simp_all
+      unfold shuffle
+      induction stack with
+      | nil => simp [shuffle.go]; split_ifs <;> simp_all [Trace.start]
+      | cons hd tl ih =>
+        unfold shuffle.go
+        split_ifs with hargs htail hsz hcan_pop
+        · simp [Trace.start]; grind
+        · simp
+        ·
+          sorry
+        · simp
+        · simp
+
+      --split_ifs with hargs htail
+      --· simp_all [Trace.start]
+      --· simp
+      --· induction stack with
+        --| nil =>
+          --simp [shuffle.go]
+          --split_ifs <;> simp_all
+        --| cons hd tl ih =>
+
+      --· simp
