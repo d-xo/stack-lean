@@ -112,6 +112,7 @@ def Target.vars (target : Target) : LSet Var := target.args.vars ∪ target.live
 --- Traces ---
 
 -- A Trace is evidence of a valid sequence of operations transforming one stack into another
+-- It relates an input stack to the set of all stacks reachable from it
 inductive Trace : Stack → Stack → Prop where
   | Lit
     : (s : Stack)
@@ -175,30 +176,28 @@ theorem apply_swap_inv
 --- Stack Classification ---
 
 @[simp]
--- TODO: we have a size now, and we index from the bottom...
-abbrev stack_is_large_enough (stack : Stack) (target : Target) : Prop
-  := stack.length ≥ target.args.length + target.liveOut.count
+abbrev size_is_correct (stack : Stack) (target : Target) : Prop
+  := stack.length = target.size
 
 @[simp]
--- TODO: this probably needs to be rewritten since we index from the bottom now?
 abbrev args_is_correct (stack: Stack) (target : Target) : Prop :=
-  have hidx : (hle : stack_is_large_enough stack target) -> ∀ i, i < target.args.length → i < stack.length := by omega
-  have thidx : ∀ i, i < target.args.length → i < target.args.length := by omega
-
-  (stack_is_large_enough stack target) ∧ ((hle : stack_is_large_enough stack target) → ∀ (i : ℕ), (hn : i < target.args.length) → stack[i]'(hidx hle i hn) = target.args[i]'(thidx i hn))
+  (size_is_correct stack target) ∧ ((hsz : size_is_correct stack target) →
+    have : target.size ≥ target.args.length + target.liveOut.count := target.size.property
+    ∀ (i : ℕ), (hn : i < target.args.length) → stack[i] = target.args[i]
+  )
 
 @[simp]
--- TODO: this probably needs to be rewritten since we index from the bottom now?
 abbrev tail_is_compatible (stack: Stack) (target : Target) : Prop :=
-  ∀ (v : Var), v ∈ target.liveOut → (.Var v) ∈ stack.drop target.args.length
-
+  (size_is_correct stack target) ∧ ((hsz : size_is_correct stack target) →
+    ∀ (v : Var), v ∈ target.liveOut → (.Var v) ∈ stack.drop target.args.length
+  )
 
 @[simp]
-abbrev input_contains_all_target_vars (input : Stack) (target : Target) : Prop := target.vars ⊆ input.vars
+abbrev input_contains_all_target_vars (input : Stack) (target : Target) : Prop
+  := target.vars ⊆ input.vars
 
 instance (input : Stack) (target : Target) : Decidable (input_contains_all_target_vars input target) :=
   inferInstanceAs (Decidable (target.vars ⊆ input.vars))
-
 
 -- The distance from a stack to a target is a metric should decrease at every shuffle step
 def distance (stack : Stack) (target : Target) : ℕ :=
@@ -254,7 +253,7 @@ def shuffle.go (start : Stack) (trace : Trace start state) (target : Target) : S
     if hcan_pop : input_contains_all_target_vars state.tail target then
       -- pop
       have : distance (List.tail state) target < distance state target := by
-        clear hcan_pop; simp [distance]; split_ifs <;> grind
+        clear hcan_pop; simp [distance]; split_ifs <;> grind only
       shuffle.go start (.Pop (by omega) trace) target
     else
       .StackTooDeep
@@ -269,7 +268,7 @@ end
 
 @[simp]
 abbrev is_compatible (stack: Stack) (target : Target) : Prop :=
-  (stack_is_large_enough stack target) ∧ (args_is_correct stack target) ∧ (tail_is_compatible stack target)
+  (size_is_correct stack target) ∧ (args_is_correct stack target) ∧ (tail_is_compatible stack target)
 
 @[simp]
 abbrev result_correct (start : Stack) (target : Target) : ShuffleResult start → Prop
@@ -290,16 +289,20 @@ theorem shuffle_go_correct
     induction state with
     | nil =>
       simp [shuffle.go]
-      split_ifs <;> simp_all
+      split_ifs <;> grind only [
+        List.length_nil,
+        =_ List.contains_iff_mem,
+        List.drop_nil, cases Or
+      ]
     | cons hd tl ih =>
       unfold shuffle.go
-      split_ifs
-      · constructor; exact trace
-        grind
-      · simp
-      · grind
-      · simp
-      · grind
+      split_ifs <;> try grind only [
+        List.length_cons,
+        List.tail_cons,
+        = List.getElem_cons,
+        =_ List.contains_iff_mem,
+        cases Or
+      ]
 
 -- shuffle always produces a correct result for all inputs where the
 -- starting stack contains all variables required by the target
@@ -312,15 +315,37 @@ theorem shuffle_correct
         simp [shuffle, shuffle.go]
         split_ifs
         · constructor; exact (.Lit [])
-          grind
-        · simp
-        · simp
+          simp_all only [
+            input_contains_all_target_vars,
+            forall_true_left,
+            true_and,
+            List.drop_nil,
+            List.not_mem_nil,
+            imp_false,
+            List.length_nil,
+            implies_true,
+            and_self
+          ]
+        · simp only []
+        · simp only []
+
       | cons hd tl ih =>
         unfold shuffle
         unfold shuffle.go
-        split_ifs with hargs htail hsz hcan_pop <;> try simp
+        split_ifs with hargs htail hsz hcan_pop <;> try (grind only)
         · constructor; exact (.Lit (hd :: tl))
-          constructor; simp_all
-          constructor; simp_all
-          grind
+          simp_all only [
+            input_contains_all_target_vars,
+            result_correct,
+            is_compatible,
+            size_is_correct,
+            LSet.count,
+            args_is_correct,
+            tail_is_compatible,
+            true_and,
+            forall_true_left,
+            List.length_cons,
+            implies_true,
+            and_self
+          ]
         · refine shuffle_go_correct (hd :: tl) ?_ ?_ target hvars
