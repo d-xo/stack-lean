@@ -101,71 +101,120 @@ def Target.vars (target : Target) : LSet Var := target.args.vars ∪ target.live
 
 --- Traces ---
 
---inductive Trace where
-  --| Lit : (stk : Stack) → Trace
-  --| Swap : ℕ → Trace → Trace
-  --| Dup : ℕ → Trace → Trace
-  --| Pop : Trace → Trace
-  --| Push : Word → Trace → Trace
-  --| MarkJunk : ℕ → Trace → Trace
-  --deriving Repr
+inductive Trace where
+  | Lit : (stk : Stack) → Trace
+  | Swap : ℕ → Trace → Trace
+  | Dup : ℕ → Trace → Trace
+  | Pop : Trace → Trace
+  | Push : Word → Trace → Trace
+  | MarkJunk : ℕ → Trace → Trace
+  deriving Repr
 
---def Trace.start : Trace → Stack
-  --| .Lit s => s
-  --| .Swap _ t => t.start
-  --| .Dup _ t => t.start
-  --| .Pop t => t.start
-  --| .Push _ t => t.start
-  --| .MarkJunk _ t => t.start
+def Trace.start : Trace → Stack
+  | .Lit s => s
+  | .Swap _ t => t.start
+  | .Dup _ t => t.start
+  | .Pop t => t.start
+  | .Push _ t => t.start
+  | .MarkJunk _ t => t.start
 
 def List.swap {α : Type u} (xs : List α) (i j : ℕ) (hi : i < xs.length := by get_elem_tactic) (hj : j < xs.length := by get_elem_tactic) := (xs.set i xs[j]).set j xs[i]
 
-inductive Trace : Stack → Stack → Prop where
-  | Refl
+inductive Trace.Valid : Trace → Stack → Prop where
+  | Lit
     : (s : Stack)
-    → Trace s s
+    → Trace.Valid (.Lit s) s
   | Swap
     : (idx : ℕ)
-    → (hlen : idx < prev.length)
-    → (hidx : 1 ≤ idx ∧ idx < 17)
-    → Trace s prev
-    → Trace s (prev.swap 0 idx)
+    → (hlen : idx < result.length)
+    → (hlo : 1 ≤ idx)
+    → (hhi : idx < 17)
+    → Trace.Valid trace result
+    → Trace.Valid (.Swap idx trace) (result.swap 0 idx)
   | Dup
     : (idx : ℕ)
-    → (hlen : idx < prev.length)
-    → (hidx : 1 ≤ idx ∧ idx < 17)
-    → Trace s prev
-    → Trace s (prev[idx] :: prev)
+    → (hlen : idx < result.length)
+    → (hlo : 1 ≤ idx)
+    → (hhi : idx < 17)
+    → Trace.Valid trace result
+    → Trace.Valid (.Dup idx trace) (result[idx] :: result)
   | Pop
-    : (hlen : 0 < prev.length)
-    → Trace s prev
-    → Trace s prev.tail
+    : (hlen : 0 < result.length)
+    → Trace.Valid trace result
+    → Trace.Valid (.Pop trace) result.tail
   | Push
     : (w : Word)
-    → Trace s prev
-    → Trace s (.Lit w :: prev)
+    → Trace.Valid trace result
+    → Trace.Valid (.Push w trace) (.Lit w :: result)
   | MarkJunk
     : (idx : ℕ)
-    → (hlen : idx < prev.length)
-    → Trace s prev
-    → Trace s (prev.set idx .Junk)
+    → (hlen : idx < result.length)
+    → Trace.Valid trace result
+    → Trace.Valid (.MarkJunk idx trace) (result.set idx .Junk)
+
+-- two traces are equivalent if there is a valid shuffle from each into the same stack
+def Trace.eq (l r : Trace) : Prop :=
+  l = r ∨ ∃ s, Trace.Valid l s ∧ Trace.Valid r s
+
+
+
+def Trace.eq.eqv : Equivalence Trace.eq where
+  refl t := by
+    unfold Trace.eq
+    apply Or.intro_left
+    rfl
+
+  symm := by
+    intro l r heq
+    simp_all only [eq]
+    rcases heq with hp | hq
+    · apply Or.intro_left
+      simp_all
+    · apply Or.intro_right
+      match hq with
+      | ⟨s, ⟨hl, hr⟩⟩ => exact ⟨s, ⟨hr, hl⟩⟩
+
+  trans := by
+    intro x y z hxy hyz
+    simp_all only [eq]
+    rcases hxy with hxy0 | hxy1
+    · rcases hyz with hyz0 | hyz1
+      · apply Or.intro_left
+        subst hxy0 hyz0
+        rfl
+      · apply Or.intro_right
+        subst hxy0
+        assumption
+    · rcases hyz with hyz0 | hyz1
+      · apply Or.intro_right
+        subst hyz0
+        assumption
+      · apply Or.intro_right
+        match hxy1 with
+        | ⟨s0, ⟨hxs0, hyx0⟩⟩ =>
+          match hyz1 with
+          | ⟨s1, ⟨hys1, hzs1⟩⟩ =>
+            have : s0 = s1 := by sorry
+            subst this
+            exact ⟨s0, ⟨hxs0, hzs1⟩⟩
+
+instance Trace.instSetoid : Setoid Trace where
+  r := Trace.eq
+  iseqv := Trace.eq.eqv
+
+def TraceQ : Type := Quotient Trace.instSetoid
 
 
 -- apply theorems --
 
 -- dup grows stack size by 1
---theorem apply_dup_grows_stack (start : Stack) (finish : Stack) (idx : ℕ) (hlen : idx < start.length) (hidx : 1 ≤ idx ∧ idx < 17) : Trace.Dup idx hlen hidx (.Refl start) : Trace start finish := by sorry
-
-/-
-
-theorem apply_dup_grows_stack (start : Stack) (finish : Stack) (idx : ℕ) (hlen : idx < start.length) (hidx : 1 ≤ idx ∧ idx < 17) (trace : Trace start finish) :
-    trace = .Dup idx hlen hidx (.Refl start) → finish.length = start.length + 1 := by
-      sorry
+theorem apply_dup_grows_stack (start : Stack) (result : Stack) (idx : ℕ) (hvalid : Trace.Valid (.Dup idx (.Lit start)) result) : result.length = start.length + 1 := match hvalid with
+  | Trace.Valid.Dup _ _ _ _ (.Lit _) => by simp only [List.length_cons]
 
 
 -- applying swap at the same idx twice is a noop
-theorem apply_swap_inv (stack : Stack) (idx : ℕ) (heval : Trace.valid (.Lit stack |> .Swap idx |> .Swap idx) res) : res = stack := match heval with
-  | .Swap (.Swap .Lit hlen' hlo' hhi') hlen hlo hhi => by
+theorem apply_swap_inv (stack : Stack) (idx : ℕ) (heval : Trace.Valid (.Lit stack |> .Swap idx |> .Swap idx) res) : res = stack := match heval with
+  | .Swap _ _ _ _ (.Swap _ _ _ _ (.Lit _)) => by
     simp_all [List.swap, List.getElem_set]
     split_ifs
     · simp_all
@@ -173,7 +222,6 @@ theorem apply_swap_inv (stack : Stack) (idx : ℕ) (heval : Trace.valid (.Lit st
       simp_all [List.getElem?_set]
       split_ifs <;> simp_all
       exact List.getElem_eq_iff ?_
--/
 
 --- Stack Shuffling ---
 
@@ -231,20 +279,20 @@ instance (input : Stack) (target : Target) : Decidable (input_contains_all_targe
 inductive ShuffleResult (start : Stack) where
   | StackTooDeep
   | ForbiddenState
-  | ResultStack (finish : Stack) (trace : Trace start finish)
+  | ResultStack (trace : Trace) (result : Stack)
   deriving Repr
 
 mutual
 
 -- TODO: target can only be reached from stack if the variable set of target ⊆ the variable set of stack
 def shuffle (stack : Stack) (target : Target) (precondition : input_contains_all_target_vars stack target) : ShuffleResult stack
-  := shuffle.go stack stack (.Refl stack) target
+  := shuffle.go (.Lit stack) stack target
 
 @[simp]
-def shuffle.go (start : Stack) (state : Stack) (trace : Trace start state) (target : Target) : ShuffleResult start :=
+def shuffle.go (trace : Trace) (state : Stack) (target : Target) : ShuffleResult start :=
   if args_is_correct state target then
     if tail_is_compatible state target
-    then .ResultStack state trace
+    then .ResultStack trace state
     else .StackTooDeep
 
   -- if we have too much stuff
@@ -252,7 +300,7 @@ def shuffle.go (start : Stack) (state : Stack) (trace : Trace start state) (targ
     if hcan_pop : input_contains_all_target_vars state.tail target then
       have : distance (List.tail state) target < distance state target := by
         clear hcan_pop; simp [distance]; split_ifs <;> grind
-      shuffle.go start state.tail (.Pop (by omega) trace) target
+      shuffle.go (.Pop trace) state.tail target
     else
       .StackTooDeep
 
@@ -270,34 +318,46 @@ end
 
 -- #eval shuffle [.Var 33, .Var 33, .Var 33] (Target.mk [.Var 33, .Var 33] (LSet.ofList [33]) ⟨3, by simp[LSet.ofList]; aesop⟩)
 
+theorem valid_reduce (t : Trace) (r : Stack) (_ : Trace.Valid t r) : Trace.Valid (.Lit r) r :=
+  (.Lit r)
+
 -- for every stack and target
 theorem shuffle_correct (stack : Stack) (target : Target) (hvars : input_contains_all_target_vars stack target) :
    -- the result of a shuffle is either:
    match shuffle stack target hvars with
      -- a valid sequence of ops from the input to a result stack compatible with the target
-     | .ResultStack finish trace => is_compatible finish target
+     | .ResultStack trace finish => Trace.Valid trace finish ∧ is_compatible finish target
      -- a stack too deep
      | .StackTooDeep => True
      -- we never enter the forbidden state
      | .ForbiddenState => False
    := by
       induction stack with
-      | nil => simp [shuffle, shuffle.go]; split_ifs <;> simp_all
+      | nil =>
+        simp [shuffle, shuffle.go]
+        split_ifs <;> try simp_all
+        · exact .Lit []
       | cons hd tl ih =>
         unfold shuffle
         unfold shuffle.go
         split_ifs with hargs htail hsz hcan_pop
-        · simp; grind
+        · simp; apply And.intro
+          · exact .Lit (hd :: tl)
+          · grind
         · simp
         · change input_contains_all_target_vars tl target at hcan_pop
           obtain ih' := ih hcan_pop
+
           simp only [List.tail]
+
           unfold shuffle at ih'
 
           unfold shuffle.go
 
           split_ifs
-          · simp; grind
+          · simp; apply And.intro
+            · exact (.Pop (by simp_all) (.Lit (hd :: tl)))
+            · grind
           · simp
           ·
             sorry
