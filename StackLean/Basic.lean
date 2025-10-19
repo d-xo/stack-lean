@@ -292,11 +292,12 @@ theorem shuffle_go_correct
       split_ifs <;> grind only [
         List.length_nil,
         =_ List.contains_iff_mem,
-        List.drop_nil, cases Or
+        List.drop_nil,
+        cases Or
       ]
     | cons hd tl ih =>
       unfold shuffle.go
-      split_ifs <;> try grind only [
+      split_ifs <;> grind only [
         List.length_cons,
         List.tail_cons,
         = List.getElem_cons,
@@ -315,37 +316,14 @@ theorem shuffle_correct
         simp [shuffle, shuffle.go]
         split_ifs
         · constructor; exact (.Lit [])
-          simp_all only [
-            input_contains_all_target_vars,
-            forall_true_left,
-            true_and,
-            List.drop_nil,
-            List.not_mem_nil,
-            imp_false,
-            List.length_nil,
-            implies_true,
-            and_self
-          ]
-        · simp only []
-        · simp only []
+          grind only [List.length_nil, =_ List.contains_iff_mem, List.drop_nil, cases Or]
+        · simp only
+        · simp only
 
       | cons hd tl ih =>
         unfold shuffle
         unfold shuffle.go
         split_ifs with hargs htail hsz hcan_pop <;> try (grind only)
         · constructor; exact (.Lit (hd :: tl))
-          simp_all only [
-            input_contains_all_target_vars,
-            result_correct,
-            is_compatible,
-            size_is_correct,
-            LSet.count,
-            args_is_correct,
-            tail_is_compatible,
-            true_and,
-            forall_true_left,
-            List.length_cons,
-            implies_true,
-            and_self
-          ]
+          grind only [ List.length_cons, = List.getElem_cons, =_ List.contains_iff_mem, cases Or ]
         · refine shuffle_go_correct (hd :: tl) ?_ ?_ target hvars
