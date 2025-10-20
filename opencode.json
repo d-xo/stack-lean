@@ -1,0 +1,11 @@
+{
+  "mcp": {
+    "lean-lsp-mcp": {
+      "type": "local",
+      "command": [ "lean-lsp-mcp" ],
+      "enabled": true
+    },
+  },
+  "$schema": "https://opencode.ai/config.json"
+}
+
