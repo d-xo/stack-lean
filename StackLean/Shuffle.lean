@@ -57,7 +57,7 @@ inductive ShuffleResult (start : Stack) where
 mutual
 
 -- TODO: target can only be reached from stack if the variable set of target âŠ† the variable set of stack
-def shuffle (stack : Stack) (target : Target) (precondition : input_contains_all_target_vars stack target) : ShuffleResult stack
+def shuffle (stack : Stack) (target : Target) (_ : input_contains_all_target_vars stack target) : ShuffleResult stack
   := shuffle.go stack (.Lit stack) target
 
 @[simp]
@@ -106,7 +106,7 @@ abbrev result_correct (start : Stack) (target : Target) : ShuffleResult start â†
 -- starting stack contains all variables required by the target
 theorem shuffle_go_correct
   (start : Stack) (state : Stack) (trace : Trace start state) (target : Target)
-  (hvars : input_contains_all_target_vars start target)
+  (_ : input_contains_all_target_vars start target)
     : result_correct start target (shuffle.go start trace target)
   := by
     induction state with
