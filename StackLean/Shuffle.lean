@@ -1,4 +1,5 @@
 import Init.Data.List
+import Batteries.Data.List.Lemmas
 import Mathlib.Data.Nat.Basic
 import Mathlib.Data.Bool.AllAny
 import Aesop
@@ -45,19 +46,20 @@ instance (input : Stack) (target : Target) : Decidable (input_contains_all_targe
   inferInstanceAs (Decidable (target.vars ⊆ input.vars))
 
 -- The distance from a stack to a target is a metric should decrease at every shuffle step
-def distance (stack : Stack) (target : Target) : ℕ :=
-  let compare (l : Stack) (r : Stack) : ℕ
-    := l
-    |> List.zip r
-    |> List.map (λ (l,r) => if l = r then 0 else 1)
-    |> List.sum
+def size_deficit (stack : Stack) (target : Target) : ℕ
+  := (Int.ofNat stack.length - Int.ofNat target.size).natAbs
 
-  let deficit := (Int.ofNat stack.length - Int.ofNat target.size).natAbs
-  -- TODO: use List.diff
-  let args_wrong := compare (stack.args target) (target.args.drop (target.size - stack.length))
-  let tail_difference := (target.liveOut - (stack.tail_region target).vars).count
+def incorrect_args (stack : Stack) (target : Target) : ℕ
+  := (stack.args target)
+      |> List.diff (target.args.drop (target.size - stack.length))
+      |> List.length
 
-  deficit + args_wrong + tail_difference
+def tail_difference (stack : Stack) (target : Target) : ℕ
+  := (target.liveOut - (stack.tail_region target).vars).count
+
+@[simp]
+def distance (stack : Stack) (target : Target) : ℕ
+  := (size_deficit stack target) + (incorrect_args stack target) + (tail_difference stack target)
 
 --- Shuffling ---
 
@@ -147,9 +149,25 @@ def shuffle.go (start : Stack) (trace : Trace start state) (target : Target) : S
 
       -- pop always decreases the distance
       have : distance (List.tail state) target < distance state target := by
-        simp_all [distance]; split_ifs with hsz
-        · refine Nat.lt_of_add_lt_add_right _
-        · refine Nat.lt_of_add_lt_add_right _
+        unfold distance
+        have : size_deficit state.tail target < size_deficit state target := by
+          simp +arith [size_deficit]; omega
+
+        have : incorrect_args state.tail target = incorrect_args state target := by
+          simp +arith [incorrect_args]
+          split_ifs with h
+          · grind
+          · have h1 : ↑target.size = List.length state - 1 := by omega
+            have h2 : (state.length - 1) - (state.length - 1) = 0 := by omega
+            have h3 : (state.length - 1) - state.length = 0 := by omega
+            have h4 : state.length - (state.length - 1) = 1 := by omega
+            rw [h1, h2, h3, h4]
+            simp [List.drop_zero]
+            grind only [cases Or]
+
+        have : tail_difference state.tail target = tail_difference state target := by
+          simp [tail_difference]; grind only
+        grind only
 
       -- apply the pop and recurse
       shuffle.go start (.Pop (by grind) trace) target
