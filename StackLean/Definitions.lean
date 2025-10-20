@@ -1,3 +1,4 @@
+import Init.Data.List.Basic
 import Init.Data.List.Lemmas
 import Init.Data.List.Nat.Sublist
 import Init.Data.List.Nat.TakeDrop
@@ -104,6 +105,20 @@ theorem args_le_target_args (stack : Stack) (target : Target)
     simp_all [Stack.args]
     grind only [= List.length_drop, = List.length_take, = Nat.min_def, cases Or]
 
+@[simp]
+theorem args_le_stack_length (stack : Stack) (target : Target)
+  : (stack.args target).length ≤ stack.length := by
+    simp_all [Stack.args]
+    grind only [= List.length_drop, = List.length_take, = Nat.min_def, cases Or]
+
+@[simp]
+theorem stack_args_sublist_stack (stack : Stack) (target : Target)
+  : List.Sublist (stack.args target) stack := by
+    simp_all [Stack.args]
+    split_ifs with hsz
+    · apply List.Sublist.trans (List.take_sublist _ _) (List.drop_sublist _ _)
+    · grind only [List.take_sublist, usr List.Sublist.length_le, → List.Sublist.subset]
+
 -- if we prepend the target args any base with length ≤ the tail length, and
 -- then take the args of that stack relative to the target, the result is the target.args
 theorem args_concat_base_leq
@@ -189,6 +204,15 @@ theorem stack_tail_eq_stack_length_gt_tail_length
   simp_all [Stack.tail_region]
   intro hsz
   grind
+
+--- Stack Stats ---
+
+def Stack.total_count (stack : Stack) (slot : Slot) : ℕ := stack.count slot
+
+def Target.min_count (target : Target) (slot : Slot) : ℕ :=
+  match slot with
+    | .Var v => target.args.count slot + (if v ∈ target.liveOut then 1 else 0)
+    | _ => target.args.count slot
 
 --- Traces ---
 
