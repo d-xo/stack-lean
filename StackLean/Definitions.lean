@@ -211,7 +211,7 @@ inductive Trace : Stack → Stack → Prop where
     → (hlo : 1 ≤ idx)
     → (hhi : idx < 17)
     → Trace start prev
-    → Trace start (prev[idx] :: prev)
+    → Trace start (prev[idx - 1] :: prev)
   | Pop
     : (hlen : 0 < prev.length)
     → Trace start prev
