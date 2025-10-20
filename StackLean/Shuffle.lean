@@ -1,3 +1,4 @@
+import Init.Data.List
 import Mathlib.Data.Nat.Basic
 import Aesop
 
@@ -40,21 +41,8 @@ def distance (stack : Stack) (target : Target) : ℕ :=
     |> List.sum
 
   let deficit := (Int.ofNat stack.length - Int.ofNat target.size).natAbs
-
-  let args_wrong :=
-    if stack.length < target.size then
-      target.args |> List.drop (target.size - stack.length) |> compare stack
-    else
-      stack |> List.drop (stack.length - target.size)
-            |> List.take target.args.length
-            |> compare target.args
-
-  let dropLen :=
-    if stack.length < target.size
-    then stack.length - (target.size - target.args.length)
-    else target.args.length + (stack.length - target.size)
-  let tailVars := stack |> List.drop (dropLen) |> List.vars
-  let tail_difference := (target.liveOut - tailVars).count
+  let args_wrong := compare (stack.args target) (target.args.drop (target.size - stack.length))
+  let tail_difference := (target.liveOut - (stack.tail_region target).vars).count
 
   deficit + args_wrong + tail_difference
 
@@ -83,10 +71,13 @@ def shuffle.go (start : Stack) (trace : Trace start state) (target : Target) : S
   else if hlen : state.length > target.size then
     -- and the head is not needed in the target
     if hcan_pop : input_contains_all_target_vars state.tail target then
-      -- pop
+
+      -- pop always decreases the distance
       have : distance (List.tail state) target < distance state target := by
-        clear hcan_pop; simp [distance]; split_ifs <;> grind only
-      shuffle.go start (.Pop (by omega) trace) target
+        simp_all [distance]; split_ifs with hsz <;> refine Nat.lt_of_add_lt_add_right _
+
+      -- apply the pop and recurse
+      shuffle.go start (.Pop (by grind) trace) target
     else
       .StackTooDeep
 
