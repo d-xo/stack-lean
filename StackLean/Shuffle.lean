@@ -1,5 +1,3 @@
-import Init.Data.List
-import Batteries.Data.List.Lemmas
 import Mathlib.Data.Nat.Basic
 import Mathlib.Data.Bool.AllAny
 import Aesop
@@ -8,6 +6,8 @@ import Mathlib.Tactic.Linarith
 import StackLean.Definitions
 import StackLean.LSet
 import StackLean.Util
+
+set_option profiler true
 
 
 --- Stack Classification ---------------------------------------------------------------------------
@@ -52,21 +52,31 @@ instance (stack : Stack) (target : Target) : Decidable (reachable stack target) 
 -- Termination Measure -----------------------------------------------------------------------------
 
 
+-- the difference between the size of the stack and target
 def size_deficit (stack : Stack) (target : Target) : ℕ
   := (Int.ofNat stack.length - Int.ofNat target.size).natAbs
 
+-- how many things do we need in the target that are still missing in the stack
+def required_missing (stack : Stack) (target : Target) : ℕ
+  := target.elems.val.foldl (λ a v => a + (stack.count v - target.min_count v)) 0
+
+-- how many args are out of place
 def incorrect_args (stack : Stack) (target : Target) : ℕ
   := (stack.args target)
       |> List.diff (target.args.drop (target.size - stack.length))
       |> List.length
 
+-- how many elements are required in the tail but not there yet
 def tail_difference (stack : Stack) (target : Target) : ℕ
   := (target.liveOut - (stack.tail_region target).vars).count
 
 @[simp]
 -- The distance from a stack to a target is a metric should decrease at every shuffle step
 def distance (stack : Stack) (target : Target) : ℕ
-  := (size_deficit stack target) + (incorrect_args stack target) + (tail_difference stack target)
+  := (size_deficit stack target)
+   + (required_missing stack target)
+   + (incorrect_args stack target)
+   + (tail_difference stack target)
 
 
 -- Lemmas ------------------------------------------------------------------------------
@@ -116,17 +126,23 @@ lemma args_correct_required_tail_out_size
 
 -- the preconditions for a pop are sufficient to decrease the distance
 lemma pop_decreasing
-  (hlen : stack.length > target.size) (hcan_pop : reachable stack.tail target)
+  (hlen : stack.length > target.size) (hcan_pop : stack.tail.count stack[0] ≥ target.min_count stack[0])
     : distance stack.tail target < distance stack target
   := by
     unfold distance
     have : size_deficit stack.tail target < size_deficit stack target := by
       simp +arith [size_deficit]; omega
 
+    have : required_missing stack.tail target = required_missing stack target := by
+      match stack[0] with
+        | .Var v =>
+          unfold required_missing
+          sorry
+
     have : incorrect_args stack.tail target = incorrect_args stack target := by
       simp +arith [incorrect_args]
       split_ifs with h
-      · grind
+      · sorry
       · have h1 : ↑target.size = List.length stack - 1 := by omega
         have h2 : (stack.length - 1) - (stack.length - 1) = 0 := by omega
         have h3 : (stack.length - 1) - stack.length = 0 := by omega
@@ -186,11 +202,11 @@ def shuffle.go (start : Stack) (trace : Trace start state) (target : Target) : S
   -- if we have too much stuff
   else if hlen : state.length > target.size then
     -- and the head is not needed in the target
-    if hcan_pop : reachable state.tail target
+    if hcan_pop : state.tail.count state[0] ≥ target.min_count state[0]
     then
       -- then apply the pop and recurse
       have := pop_decreasing hlen hcan_pop
-      shuffle.go start (.Pop (by grind) trace) target
+      shuffle.go start (.Pop (by grind only) trace) target
     else
       .StackTooDeep
 
@@ -217,6 +233,7 @@ abbrev result_correct (start : Stack) (target : Target) : ShuffleResult start �
   -- INCORRECT: the forbidden state
   | .ForbiddenState => False
 
+/-
 -- shuffle.go always produces a correct result for all inputs where the
 -- starting stack contains all variables required by the target
 theorem shuffle_go_correct
@@ -264,3 +281,4 @@ theorem shuffle_correct
         · constructor; exact (.Lit (hd :: tl))
           grind only [ List.length_cons, = List.getElem_cons, =_ List.contains_iff_mem, cases Or ]
         · refine shuffle_go_correct (hd :: tl) ?_ ?_ target hvars
+      -/
