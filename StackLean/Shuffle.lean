@@ -9,7 +9,9 @@ import StackLean.Definitions
 import StackLean.LSet
 import StackLean.Util
 
---- Stack Classification ---
+
+--- Stack Classification ---------------------------------------------------------------------------
+
 
 @[simp]
 abbrev size_is_correct (stack : Stack) (target : Target) : Prop
@@ -39,13 +41,17 @@ abbrev any_arg_required_in_tail {hargs : args_is_correct stack target} (stack: S
   (stack.args target).any (λ arg => more_needed_on_stack stack target arg)
 
 @[simp]
-abbrev input_contains_all_target_vars (input : Stack) (target : Target) : Prop
-  := target.vars ⊆ input.vars
+-- a target is reachable from a stack if the stack contains all variables needed in the target
+abbrev reachable (stack : Stack) (target : Target) : Prop
+  := target.vars ⊆ stack.vars
 
-instance (input : Stack) (target : Target) : Decidable (input_contains_all_target_vars input target) :=
-  inferInstanceAs (Decidable (target.vars ⊆ input.vars))
+instance (stack : Stack) (target : Target) : Decidable (reachable stack target) :=
+  inferInstanceAs (Decidable (target.vars ⊆ stack.vars))
 
--- The distance from a stack to a target is a metric should decrease at every shuffle step
+
+-- Termination Measure -----------------------------------------------------------------------------
+
+
 def size_deficit (stack : Stack) (target : Target) : ℕ
   := (Int.ofNat stack.length - Int.ofNat target.size).natAbs
 
@@ -58,53 +64,28 @@ def tail_difference (stack : Stack) (target : Target) : ℕ
   := (target.liveOut - (stack.tail_region target).vars).count
 
 @[simp]
+-- The distance from a stack to a target is a metric should decrease at every shuffle step
 def distance (stack : Stack) (target : Target) : ℕ
   := (size_deficit stack target) + (incorrect_args stack target) + (tail_difference stack target)
 
-lemma pop_decreasing
-  (hlen : stack.length > target.size) (hcan_pop : input_contains_all_target_vars stack.tail target)
-    : distance stack.tail target < distance stack target
+
+-- Lemmas ------------------------------------------------------------------------------
+
+
+-- if the args are correct, then stack.args = target.args
+lemma correct_args_stack_eq_target (stack : Stack) (target : Target) (hargs : args_is_correct stack target)
+    : stack.args target = target.args
   := by
-    unfold distance
-    have : size_deficit stack.tail target < size_deficit stack target := by
-      simp +arith [size_deficit]; omega
-
-    have : incorrect_args stack.tail target = incorrect_args stack target := by
-      simp +arith [incorrect_args]
-      split_ifs with h
-      · grind
-      · have h1 : ↑target.size = List.length stack - 1 := by omega
-        have h2 : (stack.length - 1) - (stack.length - 1) = 0 := by omega
-        have h3 : (stack.length - 1) - stack.length = 0 := by omega
-        have h4 : stack.length - (stack.length - 1) = 1 := by omega
-        rw [h1, h2, h3, h4]
-        simp [List.drop_zero]
-        grind only [cases Or]
-
-    have : tail_difference stack.tail target = tail_difference stack target := by
-      simp [tail_difference]; grind only
-
-    grind only
-
---- Shuffling ---
-
-inductive ShuffleResult (start : Stack) where
-  | StackTooDeep
-  | ForbiddenState
-  | ResultStack (finish : Stack) (trace : Trace start finish)
-  deriving Repr
-
-theorem args_is_correct_eq (stack : Stack) (target : Target) (hargs : args_is_correct stack target) : stack.args target = target.args := by
-  obtain ⟨hsz, _⟩ := hargs
-  unfold Stack.args
-  split_ifs with h
-  · exfalso; linarith [h, hsz]
-  · apply List.ext_getElem
-    all_goals grind only [= List.length_take, = List.getElem_take, = Nat.min_def]
+    obtain ⟨hsz, _⟩ := hargs
+    unfold Stack.args
+    split_ifs with h
+    · exfalso; linarith [h, hsz]
+    · apply List.ext_getElem
+      all_goals grind only [= List.length_take, = List.getElem_take, = Nat.min_def]
 
 -- if the args are correct, and at least one arg is still required in the tail,
 -- then target.liveOut.count must be > 0.
-theorem args_correct_required_tail_out_size
+lemma args_correct_required_tail_out_size
   (stack : Stack) (target : Target)
   (hargs : args_is_correct stack target) (hreq : any_arg_required_in_tail (hargs := hargs) stack target)
     : target.liveOut.count > 0
@@ -123,7 +104,7 @@ theorem args_correct_required_tail_out_size
       ]
 
     have (s : Slot) : List.count s (stack.args target) = List.count s target.args := by
-      rw [args_is_correct_eq]; unfold args_is_correct; exact hargs
+      rw [correct_args_stack_eq_target]; unfold args_is_correct; exact hargs
     have (s : Slot) : List.count s (stack.args target) ≤ List.count s stack := by
       apply List.Sublist.count_le; apply stack_args_sublist_stack
 
@@ -133,11 +114,47 @@ theorem args_correct_required_tail_out_size
 
     exact List.length_pos_iff_exists_mem.mpr this
 
+-- the preconditions for a pop are sufficient to decrease the distance
+lemma pop_decreasing
+  (hlen : stack.length > target.size) (hcan_pop : reachable stack.tail target)
+    : distance stack.tail target < distance stack target
+  := by
+    unfold distance
+    have : size_deficit stack.tail target < size_deficit stack target := by
+      simp +arith [size_deficit]; omega
+
+    have : incorrect_args stack.tail target = incorrect_args stack target := by
+      simp +arith [incorrect_args]
+      split_ifs with h
+      · grind
+      · have h1 : ↑target.size = List.length stack - 1 := by omega
+        have h2 : (stack.length - 1) - (stack.length - 1) = 0 := by omega
+        have h3 : (stack.length - 1) - stack.length = 0 := by omega
+        have h4 : stack.length - (stack.length - 1) = 1 := by omega
+        rw [h1, h2, h3, h4]
+        simp only [List.drop_zero, List.drop_one]
+        grind only [cases Or]
+
+    have : tail_difference stack.tail target = tail_difference stack target := by
+      simp [tail_difference]; grind only
+
+    grind only
+
+
+--- Shuffling --------------------------------------------------------------------------------------
+
+
+inductive ShuffleResult (start : Stack) where
+  | StackTooDeep
+  | ForbiddenState
+  | ResultStack (finish : Stack) (trace : Trace start finish)
+  deriving Repr
+
 mutual
 
 -- TODO: target can only be reached from stack if the variable set of target ⊆ the variable set of stack
-def shuffle (stack : Stack) (target : Target) (_ : input_contains_all_target_vars stack target) : ShuffleResult stack
-  := shuffle.go stack (.Lit stack) target
+def shuffle (stack : Stack) (target : Target) (_ : reachable stack target) : ShuffleResult stack
+    := shuffle.go stack (.Lit stack) target
 
 @[simp]
 def shuffle.go (start : Stack) (trace : Trace start state) (target : Target) : ShuffleResult start :=
@@ -153,10 +170,9 @@ def shuffle.go (start : Stack) (trace : Trace start state) (target : Target) : S
           .StackTooDeep
         else
           -- utility lemmas
+          have := args_correct_required_tail_out_size state target hargs hreq
+          have := target.size.property
           have : (state.args target).length = target.args.length := by simp_all; grind only
-          have : 0 < target.liveOut.count := args_correct_required_tail_out_size state target hargs hreq
-          have : target.args.length + target.liveOut.count ≤ target.size := target.size.property
-          have : target.args.length < state.length := by omega
           have : elem_idx < (state.args target).length := (Fin.cast List.length_reverse elem_idx).isLt
 
           -- termination
@@ -170,7 +186,7 @@ def shuffle.go (start : Stack) (trace : Trace start state) (target : Target) : S
   -- if we have too much stuff
   else if hlen : state.length > target.size then
     -- and the head is not needed in the target
-    if hcan_pop : input_contains_all_target_vars state.tail target
+    if hcan_pop : reachable state.tail target
     then
       -- then apply the pop and recurse
       have := pop_decreasing hlen hcan_pop
@@ -184,7 +200,9 @@ def shuffle.go (start : Stack) (trace : Trace start state) (target : Target) : S
 
 end
 
---- Correctness ---
+
+--- Correctness ------------------------------------------------------------------------------------
+
 
 @[simp]
 abbrev is_compatible (stack: Stack) (target : Target) : Prop :=
@@ -202,8 +220,7 @@ abbrev result_correct (start : Stack) (target : Target) : ShuffleResult start �
 -- shuffle.go always produces a correct result for all inputs where the
 -- starting stack contains all variables required by the target
 theorem shuffle_go_correct
-  (start : Stack) (state : Stack) (trace : Trace start state) (target : Target)
-  (_ : input_contains_all_target_vars start target)
+  (start : Stack) (state : Stack) (trace : Trace start state) (target : Target) (_ : reachable start target)
     : result_correct start target (shuffle.go start trace target)
   := by
     induction state with
@@ -228,8 +245,7 @@ theorem shuffle_go_correct
 -- shuffle always produces a correct result for all inputs where the
 -- starting stack contains all variables required by the target
 theorem shuffle_correct
-  (start : Stack) (target : Target)
-  (hvars : input_contains_all_target_vars start target)
+  (start : Stack) (target : Target) (hvars : reachable start target)
     : result_correct start target (shuffle start target hvars)
    := by
       induction start with
