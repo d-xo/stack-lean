@@ -61,6 +61,31 @@ def tail_difference (stack : Stack) (target : Target) : ℕ
 def distance (stack : Stack) (target : Target) : ℕ
   := (size_deficit stack target) + (incorrect_args stack target) + (tail_difference stack target)
 
+lemma pop_decreasing
+  (hlen : stack.length > target.size) (hcan_pop : input_contains_all_target_vars stack.tail target)
+    : distance stack.tail target < distance stack target
+  := by
+    unfold distance
+    have : size_deficit stack.tail target < size_deficit stack target := by
+      simp +arith [size_deficit]; omega
+
+    have : incorrect_args stack.tail target = incorrect_args stack target := by
+      simp +arith [incorrect_args]
+      split_ifs with h
+      · grind
+      · have h1 : ↑target.size = List.length stack - 1 := by omega
+        have h2 : (stack.length - 1) - (stack.length - 1) = 0 := by omega
+        have h3 : (stack.length - 1) - stack.length = 0 := by omega
+        have h4 : stack.length - (stack.length - 1) = 1 := by omega
+        rw [h1, h2, h3, h4]
+        simp [List.drop_zero]
+        grind only [cases Or]
+
+    have : tail_difference stack.tail target = tail_difference stack target := by
+      simp [tail_difference]; grind only
+
+    grind only
+
 --- Shuffling ---
 
 inductive ShuffleResult (start : Stack) where
@@ -145,31 +170,10 @@ def shuffle.go (start : Stack) (trace : Trace start state) (target : Target) : S
   -- if we have too much stuff
   else if hlen : state.length > target.size then
     -- and the head is not needed in the target
-    if hcan_pop : input_contains_all_target_vars state.tail target then
-
-      -- pop always decreases the distance
-      have : distance (List.tail state) target < distance state target := by
-        unfold distance
-        have : size_deficit state.tail target < size_deficit state target := by
-          simp +arith [size_deficit]; omega
-
-        have : incorrect_args state.tail target = incorrect_args state target := by
-          simp +arith [incorrect_args]
-          split_ifs with h
-          · grind
-          · have h1 : ↑target.size = List.length state - 1 := by omega
-            have h2 : (state.length - 1) - (state.length - 1) = 0 := by omega
-            have h3 : (state.length - 1) - state.length = 0 := by omega
-            have h4 : state.length - (state.length - 1) = 1 := by omega
-            rw [h1, h2, h3, h4]
-            simp [List.drop_zero]
-            grind only [cases Or]
-
-        have : tail_difference state.tail target = tail_difference state target := by
-          simp [tail_difference]; grind only
-        grind only
-
-      -- apply the pop and recurse
+    if hcan_pop : input_contains_all_target_vars state.tail target
+    then
+      -- then apply the pop and recurse
+      have := pop_decreasing hlen hcan_pop
       shuffle.go start (.Pop (by grind) trace) target
     else
       .StackTooDeep
