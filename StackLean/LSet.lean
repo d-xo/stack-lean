@@ -146,4 +146,13 @@ theorem lset_of_list_not_mem {α : Type} [DecidableEq α] (l : List α) (elem : 
             obtain ⟨hl, hr⟩ := hmem
             exact ih hr
 
-
+theorem lset_union_or_mem {α : Type} [DecidableEq α] (l r : LSet α) (elem : α) :
+    elem ∈ l ∪ r ↔ elem ∈ l ∨ elem ∈ r
+  := by
+    have h1 : elem ∈ l.val ++ r.val ↔ elem ∈ LSet.ofList (l.val ++ r.val) :=
+      lset_of_list_mem (l.val ++ r.val) elem
+    have h2 : elem ∈ l.val ∨ elem ∈ r.val ↔ elem ∈ l.val ++ r.val :=
+      by simp [List.mem_append]
+    have h3 : elem ∈ l ↔ elem ∈ l.val := by simp only [Membership.mem]
+    have h4 : elem ∈ r ↔ elem ∈ r.val := by simp only [Membership.mem]
+    simp [Union.union, h1, h2, h3, h4]

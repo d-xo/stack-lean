@@ -1,10 +1,4 @@
 import Init.Data.List.Basic
-import Init.Data.List.Lemmas
-import Init.Data.List.Nat.Sublist
-import Init.Data.List.Nat.TakeDrop
-import Mathlib.Data.List.TakeDrop
-import Mathlib.Data.List.Lemmas
-import Mathlib.Data.List.Lemmas
 import Mathlib.Data.Nat.Basic
 import Aesop
 
@@ -34,11 +28,53 @@ def slotToVar : Slot → Option Var
   | .Var v => some v
   | _ => none
 
+def Slot.isJunk : Slot → Prop
+  | .Junk => True
+  | _ => False
+
+instance (s : Slot) : Decidable (s.isJunk) :=
+  match s with
+  | .Junk => isTrue (by simp [Slot.isJunk])
+  | .Lit _ => isFalse (by simp [Slot.isJunk])
+  | .Var _ => isFalse (by simp [Slot.isJunk])
+
 --- Stacks ---
 
 abbrev Stack := List Slot
 
 def List.vars (stack : Stack) : LSet Var := stack |> List.filterMap slotToVar |> LSet.ofList
+
+-- gives back the set of all non junk elements
+def List.elems (stack : Stack) : LSet Slot :=
+  stack |> List.dedup |> List.filter (λ s => ¬s.isJunk) |> LSet.ofList
+
+theorem list_elems_mem (s : Slot) (stack : Stack) (hmem : s ∈ stack) (hnj : ¬s.isJunk) : s ∈ stack.elems := by
+  simp only [List.elems]
+  have h1 : s ∈ List.dedup stack := List.mem_dedup.mpr hmem
+  have h2 : s ∈ List.filter (fun s => decide ¬s.isJunk) (List.dedup stack) := by
+    apply List.mem_filter_of_mem
+    · exact h1
+    · cases s with
+      | Junk => contradiction
+      | Var _ => simp [Slot.isJunk]
+      | Lit _ => simp [Slot.isJunk]
+
+  exact (lset_of_list_mem _ _).mp h2
+
+theorem list_elems_mem_junk (s : Slot) (stack : Stack) (hmem : s ∈ stack) (hnj : s.isJunk) : s ∉ stack.elems := by
+  simp only [List.elems]
+  have h1 : s ∈ List.dedup stack := List.mem_dedup.mpr hmem
+  have h2 : s ∉  List.filter (fun s => decide ¬s.isJunk) (List.dedup stack) := by
+    grind only [List.mem_filter, =_ List.contains_iff_mem]
+  exact (lset_of_list_not_mem _ _).mp h2
+
+theorem list_elems_not_mem (s : Slot) (stack : Stack) (hmem : s ∉ stack) : s ∉ stack.elems := by
+  simp only [List.elems]
+  have : s ∉ List.dedup stack := by rw [List.mem_dedup]; exact hmem
+  have h : s ∉ List.filter (fun s => decide ¬s.isJunk) (List.dedup stack) := by
+    intro h; have : s ∈ List.dedup stack := List.mem_filter.mp h |>.1
+    contradiction
+  exact (lset_of_list_not_mem _ _).mp h
 
 --- Targets ---
 
@@ -51,11 +87,129 @@ structure Target where
   -- the size of the target stack
   size : { n : ℕ // n ≥ args.length + liveOut.count }
 
+instance : Membership Slot Target where
+  mem (target : Target) (s : Slot) := match s with
+    | .Var v => s ∈ target.args ∨ v ∈ target.liveOut
+    | .Lit _ => s ∈ target.args
+    | .Junk => s ∈ target.args
+
+instance (target : Target) (s : Slot) : Decidable (s ∈ target) := match s with
+  | .Var v => inferInstanceAs (Decidable (.Var v ∈ target.args ∨ v ∈ target.liveOut))
+  | .Lit a => inferInstanceAs (Decidable (.Lit a ∈ target.args))
+  | .Junk => inferInstanceAs (Decidable (.Junk ∈ target.args))
+
 def Target.vars (target : Target) : LSet Var := target.args.vars ∪ target.liveOut
+
+-- gives back the set of all non junk elements
+def Target.elems (target : Target) : LSet Slot := target.args.elems ∪ target.liveOut.map (.Var)
+
+theorem target_elems_mem (s : Slot) (target : Target) (hmem : s ∈ target) (hnj : ¬s.isJunk) : s ∈ target.elems := by
+  simp only [Target.elems]
+  rw [lset_union_or_mem]
+  cases s with
+  | Junk => contradiction
+  | Var v =>
+    have h1 : (.Var v) ∈ target.args ∨ v ∈ target.liveOut := by simpa using hmem
+    cases h1 with
+    | inl h_args =>
+      have h2 : (.Var v) ∈ target.args.elems := list_elems_mem (.Var v) target.args h_args hnj
+      exact Or.inl h2
+    | inr h_live =>
+      have h3 : (Slot.Var v) ∈ target.liveOut.map (.Var) := by
+        simp only [LSet.map]
+        have h4 : v ∈ target.liveOut.val := by
+          unfold Membership.mem
+          unfold List.instMembership
+          simp
+          exact h_live
+        have h5 : Slot.Var v ∈ List.map Slot.Var target.liveOut.val := by
+          apply List.mem_map_of_mem
+          exact h4
+        have h6 : Slot.Var v ∈ LSet.ofList (List.map Slot.Var target.liveOut.val) := by
+          rw [←lset_of_list_mem _ _]
+          exact h5
+        exact h6
+      exact Or.inr h3
+  | Lit w =>
+    have h1 : (.Lit w) ∈ target.args := by simpa using hmem
+    have h2 : (.Lit w) ∈ target.args.elems := list_elems_mem (.Lit w) target.args h1 hnj
+    exact Or.inl h2
+
+theorem target_elems_mem_junk (s : Slot) (target : Target) (hmem : s ∈ target) (hnj : s.isJunk) : s ∉ target.elems := by
+  cases s with
+  | Junk =>
+    simp only [Target.elems]
+    have h1 : Slot.Junk ∈ target.args := by simpa using hmem
+    have : Slot.Junk ∉ target.args.elems := list_elems_mem_junk Slot.Junk target.args h1 (by simp [Slot.isJunk])
+    intro h
+    have : Slot.Junk ∈ target.args.elems ∨ Slot.Junk ∈ target.liveOut.map (fun v => Slot.Var v) := by
+      rw [lset_union_or_mem] at h; simpa using h
+    cases this with
+    | inl h_args => contradiction
+    | inr h_live =>
+      have h2 : Slot.Junk ∈ List.map (fun v => Slot.Var v) target.liveOut.val := by
+        rw [lset_of_list_mem]
+        simpa using h_live
+      obtain ⟨_, _, hv2⟩ := List.mem_map.mp h2
+      cases hv2
+  | Var v => contradiction
+  | Lit w => contradiction
+
+theorem target_elems_not_mem (s : Slot) (target : Target) (hmem : s ∉ target) : s ∉ target.elems := by
+  simp only [Target.elems]
+  rw [lset_union_or_mem]
+  cases s with
+  | Junk =>
+    intro h
+    unfold Membership.mem at hmem
+    unfold instMembershipSlotTarget at hmem
+    simp at hmem
+    cases h with
+    | inl h' =>
+      apply list_elems_not_mem (.Junk) target.args hmem
+      exact h'
+    | inr h' =>
+      exfalso
+      simp [LSet.map] at h'
+      rw [←lset_of_list_mem] at h'
+      obtain ⟨v, hv1, hv2⟩ := List.mem_map.mp h'
+      cases hv2
+  | Lit w =>
+    intro h
+    unfold Membership.mem at hmem
+    unfold instMembershipSlotTarget at hmem
+    simp at hmem
+    cases h with
+    | inl h' =>
+      apply list_elems_not_mem (.Lit w) target.args hmem
+      exact h'
+    | inr h' =>
+      exfalso
+      simp [LSet.map] at h'
+      rw [←lset_of_list_mem] at h'
+      obtain ⟨v, hv1, hv2⟩ := List.mem_map.mp h'
+      cases hv2
+  | Var v =>
+    intro h
+    unfold Membership.mem at hmem
+    unfold instMembershipSlotTarget at hmem
+    simp at hmem
+    cases h with
+    | inl h' =>
+      apply list_elems_not_mem (.Var v) target.args hmem.left
+      exact h'
+    | inr h' =>
+      exfalso
+      simp [LSet.map] at h'
+      rw [←lset_of_list_mem] at h'
+      obtain ⟨v, hv1, hv2⟩ := List.mem_map.mp h'
+      cases hv2
+      obtain ⟨hl, hr⟩ := hmem
+      contradiction
+
 
 @[simp]
 abbrev Target.tail_length (target : Target) := target.size - target.args.length
-
 --- Stack Args ---
 
 @[simp, reducible]
@@ -212,7 +366,8 @@ def Stack.total_count (stack : Stack) (slot : Slot) : ℕ := stack.count slot
 def Target.min_count (target : Target) (slot : Slot) : ℕ :=
   match slot with
     | .Var v => target.args.count slot + (if v ∈ target.liveOut then 1 else 0)
-    | _ => target.args.count slot
+    | .Lit _ => target.args.count slot
+    | .Junk => 0
 
 --- Traces ---
 
