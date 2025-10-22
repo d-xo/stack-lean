@@ -4,3 +4,4 @@ import StackLean.Definitions
 import StackLean.Shuffle
 import StackLean.Util
 import StackLean.LSet
+import StackLean.Stats
